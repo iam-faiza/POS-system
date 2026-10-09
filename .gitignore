@@ -1,0 +1,18 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Frontend build
+client/dist/
+
+# Logs
+*.log
+
+# Database backups and local data
+mongodb-data/
+dump/
+*.dump
