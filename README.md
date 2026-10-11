@@ -96,7 +96,7 @@ Ensure the following tools are installed on your Ubuntu/Linux system:
 1. **Clone or Open the Repository**:
    Navigate to your project root folder:
    ```bash
-   cd ~/Documents/sem-3/ds/Pos_system
+   cd ~/Downloads
    ```
 
 2. **Install Backend Dependencies**:
