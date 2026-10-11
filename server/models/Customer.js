@@ -3,7 +3,7 @@ const Schema = mongoose.Schema;
 
 const customerSchema = new Schema({
   name: { type: String, required: true },
-  phone: { type: String, required: true },
+  phone: { type: String, required: true, unique: true, trim: true },
   email: { type: String },
   marketingConsent: { type: Boolean, default: false },
   isArchived: { type: Boolean, default: false }

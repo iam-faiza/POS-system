@@ -121,7 +121,13 @@ async function runTests() {
       tax: 1.25,
       discount: 5.00,
       total: 21.25,
-      paymentMethod: 'card'
+      paymentMethod: 'card',
+      paymentDetails: {
+        cardType: 'Visa',
+        cardholderName: 'Maria BatchFour',
+        last4: '4242',
+        transactionRef: `B4-${Date.now()}`
+      }
     })
   });
   assert.strictEqual(customerSaleRes.status, 201, 'Customer sale failed');

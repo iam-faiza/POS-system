@@ -1,6 +1,7 @@
 import React from 'react';
-import { ShoppingCart, Package, FolderTree, Users, History, LogOut, User, Sun, Moon, Globe, DollarSign } from 'lucide-react';
+import { ShoppingCart, Package, FolderTree, Users, History, LogOut, User, Sun, Moon, Globe, DollarSign, LayoutDashboard } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
+import { canConvertCurrency } from '../utils/i18n';
 
 export default function Navbar({ activeTab, setActiveTab, user, onLogout }) {
   const { theme, toggleTheme, language, setLanguage, currency, setCurrency, availableCurrencies, t } = useSettings();
@@ -8,11 +9,19 @@ export default function Navbar({ activeTab, setActiveTab, user, onLogout }) {
   return (
     <nav className="navbar">
       <div className="nav-brand">
-        <ShoppingCart size={24} color="#6366f1" />
+        <ShoppingCart size={24} />
         <span>RetailPOS</span>
       </div>
 
       <div className="nav-links">
+        {user?.role === 'admin' && (
+          <button
+            className={activeTab === 'dashboard' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            <LayoutDashboard size={18} /> {t('dashboard')}
+          </button>
+        )}
         <button
           className={activeTab === 'pos' ? 'nav-item active' : 'nav-item'}
           onClick={() => setActiveTab('pos')}
@@ -34,12 +43,14 @@ export default function Navbar({ activeTab, setActiveTab, user, onLogout }) {
           <FolderTree size={18} /> {t('categories')}
         </button>
 
-        <button
-          className={activeTab === 'customers' ? 'nav-item active' : 'nav-item'}
-          onClick={() => setActiveTab('customers')}
-        >
-          <Users size={18} /> {t('customers')}
-        </button>
+        {user?.role === 'admin' && (
+          <button
+            className={activeTab === 'customers' ? 'nav-item active' : 'nav-item'}
+            onClick={() => setActiveTab('customers')}
+          >
+            <Users size={18} /> {t('customers')}
+          </button>
+        )}
 
         <button
           className={activeTab === 'sales' ? 'nav-item active' : 'nav-item'}
@@ -51,7 +62,7 @@ export default function Navbar({ activeTab, setActiveTab, user, onLogout }) {
 
       <div className="nav-controls">
         {/* Currency Selector */}
-        <div className="nav-setting-select" title="Display Currency">
+        <div className="nav-setting-select" title={t('currency')}>
           <DollarSign size={15} />
           <select
             value={currency}
@@ -60,15 +71,15 @@ export default function Navbar({ activeTab, setActiveTab, user, onLogout }) {
             aria-label="Display Currency"
           >
             {availableCurrencies.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code} ({c.symbol})
+              <option key={c.code} value={c.code} disabled={!canConvertCurrency(c.code)}>
+                {c.code} ({c.symbol}){!canConvertCurrency(c.code) ? ` - ${t('unavailable')}` : ''}
               </option>
             ))}
           </select>
         </div>
 
         {/* Language Selector */}
-        <div className="nav-setting-select" title="Interface Language">
+        <div className="nav-setting-select" title={t('language')}>
           <Globe size={15} />
           <select
             value={language}
@@ -99,7 +110,7 @@ export default function Navbar({ activeTab, setActiveTab, user, onLogout }) {
             <span>{user?.name}</span>
             <span className={`role-badge ${user?.role}`}>{user?.role}</span>
           </div>
-          <button onClick={onLogout} className="logout-btn" title={t('logout')}>
+          <button onClick={onLogout} className="logout-btn" title={t('logout')} aria-label={t('logout')}>
             <LogOut size={18} />
           </button>
         </div>

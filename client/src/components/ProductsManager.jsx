@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import API from '../services/api';
-import { Plus, Edit, Trash2, AlertTriangle, Search, Filter, AlertCircle, CheckCircle, RotateCcw, Archive } from 'lucide-react';
+import { Plus, Edit, Trash2, AlertTriangle, Search, Filter, AlertCircle, CheckCircle, RotateCcw, Archive, History } from 'lucide-react';
+import { useSettings } from '../context/SettingsContext';
+import AccessibleDialog from './AccessibleDialog';
 
 export default function ProductsManager({ user }) {
+  const { formatPrice, t } = useSettings();
   const [activeTab, setActiveTab] = useState('active'); // 'active' | 'archived'
   const [products, setProducts] = useState([]);
   const [archivedProducts, setArchivedProducts] = useState([]);
@@ -15,6 +18,8 @@ export default function ProductsManager({ user }) {
   const [archivedCategory, setArchivedCategory] = useState('all');
   const [actionLoading, setActionLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [movementProduct, setMovementProduct] = useState(null);
+  const [stockMovements, setStockMovements] = useState([]);
   const searchTimeoutRef = useRef(null);
   const archivedSearchTimeoutRef = useRef(null);
 
@@ -24,7 +29,8 @@ export default function ProductsManager({ user }) {
     category: '',
     price: '',
     stockQuantity: '',
-    lowStockThreshold: 5
+    lowStockThreshold: 5,
+    stockAdjustmentReason: ''
   });
   const [error, setError] = useState('');
 
@@ -114,7 +120,8 @@ export default function ProductsManager({ user }) {
       category: categories[0]?._id || '',
       price: '',
       stockQuantity: '',
-      lowStockThreshold: 5
+      lowStockThreshold: 5,
+      stockAdjustmentReason: ''
     });
     setShowModal(true);
   };
@@ -128,7 +135,8 @@ export default function ProductsManager({ user }) {
       category: p.category?._id || p.category,
       price: p.price,
       stockQuantity: p.stockQuantity,
-      lowStockThreshold: p.lowStockThreshold
+      lowStockThreshold: p.lowStockThreshold,
+      stockAdjustmentReason: ''
     });
     setShowModal(true);
   };
@@ -143,9 +151,9 @@ export default function ProductsManager({ user }) {
     const price = Number(formData.price);
     if (!Number.isFinite(price) || price <= 0) return 'Price must be greater than 0';
     const stock = Number(formData.stockQuantity);
-    if (!Number.isFinite(stock) || stock < 0) return 'Stock quantity cannot be negative';
+    if (!Number.isSafeInteger(stock) || stock < 0) return 'Stock quantity must be a non-negative whole number';
     const threshold = Number(formData.lowStockThreshold);
-    if (!Number.isFinite(threshold) || threshold < 0) return 'Low stock threshold cannot be negative';
+    if (!Number.isSafeInteger(threshold) || threshold < 0) return 'Low stock threshold must be a non-negative whole number';
     return null;
   };
 
@@ -161,7 +169,8 @@ export default function ProductsManager({ user }) {
       sku: String(formData.sku).trim().toUpperCase(),
       price: Number(formData.price),
       stockQuantity: Number(formData.stockQuantity),
-      lowStockThreshold: Number(formData.lowStockThreshold)
+      lowStockThreshold: Number(formData.lowStockThreshold),
+      stockAdjustmentReason: formData.stockAdjustmentReason
     };
 
     try {
@@ -176,29 +185,39 @@ export default function ProductsManager({ user }) {
       fetchProducts(searchQuery, selectedCategory);
       if (isAdmin) fetchArchivedProducts(archivedSearchQuery, archivedCategory);
     } catch (err) {
-      setError(err.response?.data?.message || 'Operation failed');
+      setError(err.response?.data?.message || t('edit_failed'));
+    }
+  };
+
+  const handleViewStockMovements = async (product) => {
+    try {
+      const response = await API.get(`/products/${product._id}/stock-movements`);
+      setStockMovements(response.data);
+      setMovementProduct(product);
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.response?.data?.message || t('product_load_stock_failed') });
     }
   };
 
   const handleDelete = async (p) => {
-    const confirmMsg = `Are you sure you want to archive product "${p.name}" (${p.sku})?\n\nIf this product is referenced in historical sales records, it will be safely archived to protect past receipts.`;
+    const confirmMsg = `${t('confirm_product_archive')}\n\n${p.name} (${p.sku})`;
     if (!window.confirm(confirmMsg)) return;
     setActionLoading(true);
     setFeedback(null);
     try {
       const res = await API.delete(`/products/${p._id}`);
-      setFeedback({ type: 'success', message: res.data.message || 'Product removed' });
+      setFeedback({ type: 'success', message: res.data.message || t('product_remove_failed') });
       fetchProducts(searchQuery, selectedCategory);
       if (isAdmin) fetchArchivedProducts(archivedSearchQuery, archivedCategory);
     } catch (err) {
-      setFeedback({ type: 'error', message: err.response?.data?.message || 'Failed to delete product' });
+      setFeedback({ type: 'error', message: err.response?.data?.message || t('product_archive_failed') });
     } finally {
       setActionLoading(false);
     }
   };
 
   const handleRestore = async (p) => {
-    if (!window.confirm(`Restore "${p.name}" to the active products list?`)) return;
+    if (!window.confirm(`${t('confirm_product_restore')}\n\n${p.name}`)) return;
     setActionLoading(true);
     setFeedback(null);
     try {
@@ -207,7 +226,7 @@ export default function ProductsManager({ user }) {
       fetchProducts(searchQuery, selectedCategory);
       fetchArchivedProducts(archivedSearchQuery, archivedCategory);
     } catch (err) {
-      setFeedback({ type: 'error', message: err.response?.data?.message || 'Failed to restore product' });
+      setFeedback({ type: 'error', message: err.response?.data?.message || t('product_restore_failed') });
     } finally {
       setActionLoading(false);
     }
@@ -215,15 +234,10 @@ export default function ProductsManager({ user }) {
 
   const handleBulkDelete = async () => {
     if (products.length === 0) {
-      alert('There are no active products in the catalog to delete.');
+      alert(t('no_active_products_to_delete'));
       return;
     }
-    const confirmMsg =
-      `⚠️ WARNING: ARE YOU SURE YOU WANT TO DELETE ALL PRODUCTS?\n\n` +
-      `• This operation affects the ENTIRE product catalogue.\n` +
-      `• Products with historical sales will be safely archived to preserve receipts and transaction history.\n` +
-      `• Products without sales will be permanently deleted.\n\n` +
-      `Are you sure you want to proceed?`;
+    const confirmMsg = t('confirm_bulk_product_delete');
     if (!window.confirm(confirmMsg)) return;
     setActionLoading(true);
     setFeedback(null);
@@ -233,7 +247,7 @@ export default function ProductsManager({ user }) {
       fetchProducts(searchQuery, selectedCategory);
       if (isAdmin) fetchArchivedProducts(archivedSearchQuery, archivedCategory);
     } catch (err) {
-      setFeedback({ type: 'error', message: err.response?.data?.message || 'Failed to bulk delete products' });
+      setFeedback({ type: 'error', message: err.response?.data?.message || t('bulk_product_failed') });
     } finally {
       setActionLoading(false);
     }
@@ -244,7 +258,7 @@ export default function ProductsManager({ user }) {
   return (
     <div className="manager-container">
       <div className="manager-header">
-        <h2>Products &amp; Inventory</h2>
+        <h2>{t('products_and_inventory')}</h2>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Search box */}
           {activeTab === 'active' ? (
@@ -252,7 +266,8 @@ export default function ProductsManager({ user }) {
               <Search size={18} color="var(--text-muted)" />
               <input
                 type="text"
-                placeholder="Search by name or SKU..."
+                aria-label={t('search_products_input')}
+                placeholder={t('search_products_input')}
                 value={searchQuery}
                 onChange={handleSearch}
                 style={{ border: 'none', outline: 'none', fontSize: '14px', width: '200px', background: 'transparent', color: 'var(--text-primary)' }}
@@ -263,7 +278,8 @@ export default function ProductsManager({ user }) {
               <Search size={18} color="var(--text-muted)" />
               <input
                 type="text"
-                placeholder="Search archived products..."
+                aria-label={t('search_archived_products')}
+                placeholder={t('search_archived_products')}
                 value={archivedSearchQuery}
                 onChange={handleArchivedSearch}
                 style={{ border: 'none', outline: 'none', fontSize: '14px', width: '200px', background: 'transparent', color: 'var(--text-primary)' }}
@@ -280,7 +296,7 @@ export default function ProductsManager({ user }) {
                 onChange={handleCategoryChange}
                 style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer' }}
               >
-                <option value="all">All Categories</option>
+                <option value="all">{t('all_categories')}</option>
                 {categories.map((cat) => (
                   <option key={cat._id} value={cat._id}>{cat.name}</option>
                 ))}
@@ -294,7 +310,7 @@ export default function ProductsManager({ user }) {
                 onChange={handleArchivedCategoryChange}
                 style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer' }}
               >
-                <option value="all">All Categories</option>
+                <option value="all">{t('all_categories')}</option>
                 {categories.map((cat) => (
                   <option key={cat._id} value={cat._id}>{cat.name}</option>
                 ))}
@@ -307,15 +323,15 @@ export default function ProductsManager({ user }) {
               className="btn-danger"
               onClick={handleBulkDelete}
               disabled={actionLoading}
-              title="Delete all products in the catalogue"
+              title={t('delete_all_products')}
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <Trash2 size={16} /> Delete All Products
+              <Trash2 size={16} /> {t('delete_all_products')}
             </button>
           )}
           {isAdmin && activeTab === 'active' && (
             <button className="btn-primary" onClick={handleOpenAdd} disabled={actionLoading}>
-              <Plus size={16} /> Add Product
+              <Plus size={16} /> {t('add_product')}
             </button>
           )}
         </div>
@@ -339,7 +355,7 @@ export default function ProductsManager({ user }) {
               marginBottom: '-1px'
             }}
           >
-            Active Products ({products.length})
+            {t('active_products')} ({products.length})
           </button>
           <button
             onClick={() => { setActiveTab('archived'); fetchArchivedProducts(archivedSearchQuery, archivedCategory); }}
@@ -359,7 +375,7 @@ export default function ProductsManager({ user }) {
               marginBottom: '-1px'
             }}
           >
-            <Archive size={14} /> Archived Products ({archivedProducts.length})
+            <Archive size={14} /> {t('archived_products')} ({archivedProducts.length})
           </button>
         </div>
       )}
@@ -374,9 +390,6 @@ export default function ProductsManager({ user }) {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            background: feedback.type === 'success' ? '#ecfdf5' : '#fef2f2',
-            color: feedback.type === 'success' ? '#065f46' : '#991b1b',
-            border: `1px solid ${feedback.type === 'success' ? '#a7f3d0' : '#fecaca'}`
           }}
         >
           {feedback.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
@@ -388,18 +401,18 @@ export default function ProductsManager({ user }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>SKU</th>
-              <th>Category</th>
-              <th>Price</th>
-              <th>Stock</th>
-              {isAdmin && <th>Actions</th>}
+              <th>{t('product_name')}</th>
+              <th>{t('sku')}</th>
+              <th>{t('category')}</th>
+              <th>{t('price')}</th>
+              <th>{t('stock')}</th>
+              {isAdmin && <th>{t('actions')}</th>}
             </tr>
           </thead>
 
           <tbody>
             {displayedList.map((p) => {
-              const isLow = p.stockQuantity <= p.lowStockThreshold;
+              const isLow = isAdmin && p.stockQuantity <= p.lowStockThreshold;
               const displayName = activeTab === 'archived' && p.name.endsWith(' (Archived)')
                 ? p.name.slice(0, -' (Archived)'.length)
                 : p.name;
@@ -416,7 +429,7 @@ export default function ProductsManager({ user }) {
                   </td>
                   <td><code>{p.sku}</code></td>
                   <td>{p.category?.name || 'Uncategorized'}</td>
-                  <td>${Number(p.price).toFixed(2)}</td>
+                  <td>{formatPrice(p.price)}</td>
                   <td>
                     <span className={`stock-pill ${isLow && activeTab === 'active' ? 'low' : ''}`}>
                       {isLow && activeTab === 'active' && <AlertTriangle size={14} />}
@@ -426,22 +439,34 @@ export default function ProductsManager({ user }) {
 
                   {isAdmin && (
                     <td>
+                      {activeTab === 'active' && (
+                        <button
+                          className="icon-btn"
+                          onClick={() => handleOpenEdit(p)}
+                          title={t('edit_product')}
+                          aria-label={`${t('edit_product')}: ${displayName}`}
+                          disabled={actionLoading}
+                        >
+                          <Edit size={16} />
+                        </button>
+                      )}
                       <button
                         className="icon-btn"
-                        onClick={() => handleOpenEdit(p)}
-                        title="Edit Product"
+                        onClick={() => handleViewStockMovements(p)}
+                          title={t('stock_history')}
+                        aria-label={`${t('stock_history')}: ${displayName}`}
                         disabled={actionLoading}
                       >
-                        <Edit size={16} />
+                        <History size={16} />
                       </button>
 
                       {activeTab === 'archived' ? (
                         <button
                           className="icon-btn"
                           onClick={() => handleRestore(p)}
-                          title="Restore Product"
+                          title={t('restore_product')}
+                          aria-label={`${t('restore_product')}: ${displayName}`}
                           disabled={actionLoading}
-                          style={{ color: '#059669' }}
                         >
                           <RotateCcw size={16} />
                         </button>
@@ -449,7 +474,8 @@ export default function ProductsManager({ user }) {
                         <button
                           className="icon-btn danger"
                           onClick={() => handleDelete(p)}
-                          title="Archive Product"
+                          title={t('archive_product')}
+                          aria-label={`${t('archive_product')}: ${displayName}`}
                           disabled={actionLoading}
                         >
                           <Trash2 size={16} />
@@ -469,11 +495,11 @@ export default function ProductsManager({ user }) {
                 >
                   {activeTab === 'active'
                     ? (searchQuery || selectedCategory !== 'all'
-                      ? 'No products found matching your search or category filter.'
-                      : 'No active products in inventory yet.')
+                      ? t('no_products')
+                      : t('no_active_products'))
                     : (archivedSearchQuery || archivedCategory !== 'all'
-                      ? 'No archived products found matching your filters.'
-                      : 'No archived products.')}
+                      ? t('no_archived_products_match')
+                      : t('no_archived_products'))}
                 </td>
               </tr>
             )}
@@ -482,16 +508,16 @@ export default function ProductsManager({ user }) {
       </div>
 
       {showModal && (
-        <div className="modal-backdrop">
-          <div className="modal" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3>{editProduct ? (activeTab === 'archived' ? 'Edit Archived Product' : 'Edit Product') : 'Add New Product'}</h3>
+        <AccessibleDialog className="modal manager-dialog" labelledBy="product-dialog-title" onClose={() => setShowModal(false)}>
+            <h3 id="product-dialog-title">{editProduct ? (activeTab === 'archived' ? t('edit_archived_product') : t('edit_product')) : t('add_new_product')}</h3>
 
             {error && <div className="error-alert">{error}</div>}
 
             <form onSubmit={handleSubmit} className="modal-form">
               <div className="form-group">
-                <label>Product Name</label>
+                <label htmlFor="product-name">{t('product_name')}</label>
                 <input
+                  id="product-name"
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -502,8 +528,9 @@ export default function ProductsManager({ user }) {
               </div>
 
               <div className="form-group">
-                <label>SKU</label>
+                <label htmlFor="product-sku">{t('sku')}</label>
                 <input
+                  id="product-sku"
                   type="text"
                   value={formData.sku}
                   onChange={(e) => setFormData({ ...formData, sku: e.target.value.toUpperCase() })}
@@ -515,13 +542,14 @@ export default function ProductsManager({ user }) {
               </div>
 
               <div className="form-group">
-                <label>Category</label>
+                <label htmlFor="product-category">{t('category')}</label>
                 <select
+                  id="product-category"
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                   required
                 >
-                  <option value="">Select category</option>
+                  <option value="">{t('select_category')}</option>
                   {categories.map((c) => (
                     <option key={c._id} value={c._id}>{c.name}</option>
                   ))}
@@ -529,8 +557,9 @@ export default function ProductsManager({ user }) {
               </div>
 
               <div className="form-group">
-                <label>Price ($)</label>
+                <label htmlFor="product-price">{t('product_price_base')}</label>
                 <input
+                  id="product-price"
                   type="number"
                   step="0.01"
                   min="0.01"
@@ -541,8 +570,9 @@ export default function ProductsManager({ user }) {
               </div>
 
               <div className="form-group">
-                <label>Stock Quantity</label>
+                <label htmlFor="product-stock">{t('stock')}</label>
                 <input
+                  id="product-stock"
                   type="number"
                   min="0"
                   step="1"
@@ -553,8 +583,9 @@ export default function ProductsManager({ user }) {
               </div>
 
               <div className="form-group">
-                <label>Low Stock Threshold</label>
+                <label htmlFor="product-threshold">{t('low_stock_threshold')}</label>
                 <input
+                  id="product-threshold"
                   type="number"
                   min="0"
                   step="1"
@@ -563,6 +594,20 @@ export default function ProductsManager({ user }) {
                   required
                 />
               </div>
+
+              {editProduct && (
+                <div className="form-group">
+                  <label htmlFor="stock-adjustment-reason">{t('stock_adjustment_reason')}</label>
+                  <input
+                    id="stock-adjustment-reason"
+                    type="text"
+                    maxLength={160}
+                    value={formData.stockAdjustmentReason}
+                    onChange={(e) => setFormData({ ...formData, stockAdjustmentReason: e.target.value })}
+                    placeholder={t('optional_reason')}
+                  />
+                </div>
+              )}
 
               <div className="modal-actions">
                 <button
@@ -578,8 +623,34 @@ export default function ProductsManager({ user }) {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </AccessibleDialog>
+      )}
+
+      {movementProduct && (
+        <AccessibleDialog className="modal stock-history-dialog" labelledBy="stock-history-title" onClose={() => setMovementProduct(null)}>
+            <h3 id="stock-history-title">{t('stock_history')}: {movementProduct.name}</h3>
+            <div className="table-responsive">
+              <table className="data-table">
+                <thead><tr><th>{t('movement_date')}</th><th>{t('movement_reason')}</th><th>{t('movement_change')}</th><th>{t('quantity_before')}</th><th>{t('quantity_after')}</th><th>{t('performed_by')}</th></tr></thead>
+                <tbody>
+                  {stockMovements.map((movement) => (
+                    <tr key={movement._id}>
+                      <td>{new Date(movement.createdAt).toLocaleString()}</td>
+                      <td>{movement.reason}</td>
+                      <td>{movement.quantityDelta > 0 ? '+' : ''}{movement.quantityDelta}</td>
+                      <td>{movement.quantityBefore}</td>
+                      <td>{movement.quantityAfter}</td>
+                      <td>{movement.user?.name || 'Unknown'}</td>
+                    </tr>
+                  ))}
+                  {stockMovements.length === 0 && <tr><td colSpan={6}>{t('no_stock_movements')}</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setMovementProduct(null)}>{t('close')}</button>
+            </div>
+        </AccessibleDialog>
       )}
     </div>
   );

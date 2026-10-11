@@ -33,12 +33,20 @@ const productSchema = new Schema({
     type: Number,
     required: [true, 'Stock quantity is required'],
     min: [0, 'Stock quantity cannot be negative'],
+    validate: {
+      validator: Number.isSafeInteger,
+      message: 'Stock quantity must be a safe whole number'
+    },
     default: 0
   },
   lowStockThreshold: {
     type: Number,
     required: [true, 'Low stock threshold is required'],
     min: [0, 'Low stock threshold cannot be negative'],
+    validate: {
+      validator: Number.isSafeInteger,
+      message: 'Low stock threshold must be a safe whole number'
+    },
     default: 5
   },
   isArchived: {

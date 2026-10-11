@@ -2,75 +2,133 @@ const express = require('express');
 const router = express.Router();
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
-const Customer = require('../models/Customer');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, admin } = require('../middleware/authMiddleware');
+const { createSale, CheckoutError, getCheckoutSettings } = require('../services/checkoutService');
+const { salesQueryForUser } = require('../utils/salesAccess');
+const { buildSalesDateFilter, getStoreTimeZone, parseSalesPagination } = require('../utils/salesFilters');
 
-// Process a sale
-router.post('/', protect, async (req, res) => {
-  const { customer, items, subtotal, tax, discount, total, paymentMethod, paymentDetails } = req.body;
+function createSaleRouter({
+  SaleModel = Sale,
+  ProductModel = Product,
+  protectMiddleware = protect,
+  adminMiddleware = admin,
+  createSaleService = createSale,
+  env = process.env
+} = {}) {
+  const saleRouter = express.Router();
 
-  if (!items || items.length === 0) {
-    return res.status(400).json({ message: 'No items in sale' });
-  }
-
-  try {
-    let customerSnapshot = undefined;
-    if (customer) {
-      const custDoc = await Customer.findById(customer);
-      if (custDoc) {
-        customerSnapshot = {
-          name: custDoc.name,
-          phone: custDoc.phone,
-          email: custDoc.email
-        };
-      }
-    }
-
-    // Generate simple invoice number
-    const invoiceNumber = `INV-${Date.now()}`;
-
-    const sale = new Sale({
-      invoiceNumber,
-      cashier: req.user.id,
-      customer: customer || undefined,
-      customerSnapshot,
-      items,
-      subtotal,
-      tax,
-      discount,
-      total,
-      paymentMethod,
-      paymentDetails: paymentMethod === 'card' && paymentDetails ? {
-        cardType: paymentDetails.cardType || 'Card',
-        cardholderName: paymentDetails.cardholderName || 'Customer',
-        last4: paymentDetails.last4 || '0000',
-        transactionRef: paymentDetails.transactionRef || `TXN-${Date.now().toString().slice(-6)}`
-      } : undefined
-    });
-
-    const savedSale = await sale.save();
-
-    // Decrement stock for each item
-    for (const item of items) {
-      await Product.findByIdAndUpdate(item.productId, {
-        $inc: { stockQuantity: -item.quantity }
+  saleRouter.get('/settings', protectMiddleware, (req, res) => {
+    try {
+      res.json({
+        taxRate: getCheckoutSettings(env).taxRate,
+        baseCurrency: 'PKR'
       });
+    } catch (error) {
+      res.status(503).json({ message: 'Checkout settings are unavailable' });
     }
+  });
 
-    res.status(201).json(savedSale);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
+  saleRouter.get('/summary', protectMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const timeZone = getStoreTimeZone(env);
+      const todayFilter = buildSalesDateFilter({ preset: 'today' }, timeZone);
+      const [salesSummary, inventorySummary] = await Promise.all([
+        SaleModel.aggregate([
+          { $match: todayFilter },
+          { $group: { _id: null, saleCount: { $sum: 1 }, revenue: { $sum: '$total' } } }
+        ]),
+        ProductModel.aggregate([
+          {
+            $match: {
+              isArchived: { $ne: true },
+              $expr: { $lte: ['$stockQuantity', '$lowStockThreshold'] }
+            }
+          },
+          {
+            $facet: {
+              count: [{ $count: 'value' }],
+              products: [
+                { $sort: { stockQuantity: 1 } },
+                { $limit: 10 },
+                { $project: { name: 1, sku: 1, stockQuantity: 1, lowStockThreshold: 1 } }
+              ]
+            }
+          }
+        ])
+      ]);
+      const lowStockSummary = inventorySummary[0] || { count: [], products: [] };
+      res.json({
+        date: todayFilter.createdAt.$gte,
+        timeZone,
+        salesToday: salesSummary[0]?.saleCount || 0,
+        revenueToday: salesSummary[0]?.revenue || 0,
+        lowStockCount: lowStockSummary.count[0]?.value || 0,
+        lowStockProducts: lowStockSummary.products
+      });
+    } catch (error) {
+      res.status(500).json({ message: 'Unable to load dashboard summary' });
+    }
+  });
 
-// Get sales history
-router.get('/', protect, async (req, res) => {
-  try {
-    const sales = await Sale.find({}).populate('cashier', 'name').populate('customer', 'name').sort({ createdAt: -1 });
-    res.json(sales);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+  // Process a sale
+  saleRouter.post('/', protectMiddleware, async (req, res) => {
+    try {
+      const sale = await createSaleService({
+        body: req.body,
+        cashierId: req.user.id
+      });
+      res.status(201).json(sale);
+    } catch (error) {
+      const status = error instanceof CheckoutError ? error.status : 500;
+      const message = error instanceof CheckoutError
+        ? error.message
+        : 'Checkout failed; no sale was committed';
+      res.status(status).json({ message });
+    }
+  });
 
-module.exports = router;
+  // Get sales history
+  saleRouter.get('/', protectMiddleware, async (req, res) => {
+    try {
+      const ownerQuery = salesQueryForUser(req.user);
+      if (!ownerQuery) {
+        return res.status(403).json({ message: 'Not authorized to view sales' });
+      }
+      const pagination = parseSalesPagination(req.query);
+      const timeZone = getStoreTimeZone(env);
+      const dateFilter = buildSalesDateFilter(req.query, timeZone);
+      const query = { ...ownerQuery, ...(dateFilter || {}) };
+
+      let salesQuery = SaleModel.find(query);
+      const excludedFields = [
+        '-paymentDetails.cardholderName',
+        '-paymentDetails.last4',
+        '-paymentDetails.transactionRef'
+      ];
+      if (req.user.role === 'cashier') {
+        excludedFields.push('-customerSnapshot.phone', '-customerSnapshot.email');
+      }
+      salesQuery = salesQuery.select(excludedFields.join(' '));
+      const sales = await salesQuery
+        .populate('cashier', 'name')
+        .populate('customer', 'name')
+        .sort({ createdAt: -1 })
+        .skip(pagination.skip)
+        .limit(pagination.pageSize);
+      const total = await SaleModel.countDocuments(query);
+      res.set('X-Total-Count', String(total));
+      res.set('X-Page', String(pagination.page));
+      res.set('X-Page-Size', String(pagination.pageSize));
+      res.set('X-Total-Pages', String(Math.ceil(total / pagination.pageSize)));
+      res.set('Access-Control-Expose-Headers', 'X-Total-Count, X-Page, X-Page-Size, X-Total-Pages');
+      res.json(sales);
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.status ? error.message : 'Unable to load sales history' });
+    }
+  });
+
+  return saleRouter;
+}
+
+module.exports = createSaleRouter();
+module.exports.createSaleRouter = createSaleRouter;

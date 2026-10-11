@@ -4,6 +4,14 @@ const Customer = require('../models/Customer');
 const Sale = require('../models/Sale');
 const { protect, admin } = require('../middleware/authMiddleware');
 const { validateCustomer, validatePhone } = require('../utils/customerValidation');
+const { customerProjectionForRole, customerResponseForRole } = require('../utils/customerResponse');
+
+function getArchivedOriginalPhone(phone, customerId) {
+  const currentPrefix = new RegExp(`^archived_\\d+_${String(customerId)}_`);
+  if (currentPrefix.test(phone)) return phone.replace(currentPrefix, '');
+  const legacyPrefix = /^archived_\d+_/;
+  return legacyPrefix.test(phone) ? phone.replace(legacyPrefix, '') : phone;
+}
 
 // Lookup customer by phone (normalized)
 // accessible by both Admin and Cashier
@@ -23,7 +31,9 @@ router.get('/lookup', protect, async (req, res) => {
     
     // Find matching customer using canonical phone
     // If multiple exist (legacy duplicates), return the most recent one
-    const customers = await Customer.find({ phone: normalizedPhone }).sort({ createdAt: -1 });
+    const customers = await Customer.find({ phone: normalizedPhone, isArchived: { $ne: true } })
+      .select('_id name phone')
+      .sort({ createdAt: -1 });
 
     if (customers.length > 0) {
       return res.json({ 
@@ -54,9 +64,9 @@ router.get('/', protect, async (req, res) => {
 
       const orConditions = [
         { name: searchRegex },
-        { phone: searchRegex },
-        { email: searchRegex }
+        { phone: searchRegex }
       ];
+      if (req.user.role === 'admin') orConditions.push({ email: searchRegex });
 
       // If search input matches or resembles phone format, search normalized phone as well
       const pVal = validatePhone(s);
@@ -74,7 +84,10 @@ router.get('/', protect, async (req, res) => {
       query = { isArchived: { $ne: true }, $or: orConditions };
     }
 
-    const customers = await Customer.find(query).sort({ name: 1 }).limit(100);
+    let customersQuery = Customer.find(query).sort({ name: 1 }).limit(100);
+    const projection = customerProjectionForRole(req.user.role);
+    if (projection) customersQuery = customersQuery.select(projection);
+    const customers = await customersQuery;
     res.json(customers);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -121,20 +134,21 @@ router.post('/', protect, async (req, res) => {
     const { name, phone, email, marketingConsent } = validation.data;
 
     // Backend duplicate prevention (atomic lookup-or-create simulation)
-    const existingCustomer = await Customer.findOne({ phone });
+    const existingCustomer = await Customer.findOne({ phone, isArchived: { $ne: true } });
     if (existingCustomer) {
       // Requirements: "If a matching customer exists, reuse and return the existing customer record"
-      return res.status(200).json(existingCustomer); 
+      return res.status(200).json(customerResponseForRole(existingCustomer, req.user.role));
     }
 
     const customer = new Customer({ name, phone, email, marketingConsent });
     const created = await customer.save();
-    res.status(201).json(created);
+    res.status(201).json(customerResponseForRole(created, req.user.role));
   } catch (error) {
     // Handle rare race condition if unique index is added later
     if (error.code === 11000) {
-       const existing = await Customer.findOne({ phone: validation.data.phone });
-       return res.status(200).json(existing);
+      const existing = await Customer.findOne({ phone: validation.data.phone, isArchived: { $ne: true } });
+      if (!existing) return res.status(409).json({ message: 'Phone number is already in use' });
+      return res.status(200).json(customerResponseForRole(existing, req.user.role));
     }
     res.status(400).json({ message: error.message });
   }
@@ -169,6 +183,9 @@ router.put('/:id', protect, admin, async (req, res) => {
 
     res.json(updatedCustomer);
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: 'Phone number already belongs to another customer' });
+    }
     res.status(400).json({ message: error.message });
   }
 });
@@ -188,7 +205,17 @@ router.patch('/:id/restore', protect, admin, async (req, res) => {
       return res.status(400).json({ message: 'Customer is not archived' });
     }
 
-    // Restore: clear archived flag
+    const originalPhone = getArchivedOriginalPhone(customer.phone, customer._id);
+    const activePhoneOwner = await Customer.findOne({
+      phone: originalPhone,
+      _id: { $ne: customer._id },
+      isArchived: { $ne: true }
+    });
+    if (activePhoneOwner) {
+      return res.status(409).json({ message: 'This phone number belongs to another active customer' });
+    }
+
+    // Restore: clear archived flag while preserving its original canonical phone.
     customer.isArchived = false;
 
     // If name has the "(Archived)" suffix appended during archival, strip it
@@ -197,16 +224,16 @@ router.patch('/:id/restore', protect, admin, async (req, res) => {
     }
 
     // If phone was prefixed during archival, strip the prefix
-    if (customer.phone.startsWith('archived_')) {
-      // format: archived_<timestamp>_<originalPhone>
-      const parts = customer.phone.split('_');
-      // parts[0] = 'archived', parts[1] = timestamp, rest = original phone
-      if (parts.length >= 3) {
-        customer.phone = parts.slice(2).join('_');
-      }
-    }
+    customer.phone = originalPhone;
 
-    await customer.save();
+    try {
+      await customer.save();
+    } catch (error) {
+      if (error.code === 11000) {
+        return res.status(409).json({ message: 'This phone number belongs to another customer' });
+      }
+      throw error;
+    }
     res.json({ message: 'Customer restored successfully', customer });
   } catch (error) {
     res.status(500).json({ message: 'Error restoring customer: ' + error.message });
@@ -246,7 +273,7 @@ router.delete('/', protect, admin, async (req, res) => {
           cust.name = `${cust.name} (Archived)`;
         }
         if (!cust.phone.startsWith('archived_')) {
-          cust.phone = `archived_${Date.now()}_${cust.phone}`;
+          cust.phone = `archived_${Date.now()}_${cust._id}_${cust.phone}`;
         }
         cust.isArchived = true;
         await cust.save();
@@ -287,7 +314,7 @@ router.delete('/:id', protect, admin, async (req, res) => {
         customer.name = `${customer.name} (Archived)`;
       }
       if (!customer.phone.startsWith('archived_')) {
-        customer.phone = `archived_${Date.now()}_${customer.phone}`;
+        customer.phone = `archived_${Date.now()}_${customer._id}_${customer.phone}`;
       }
       customer.isArchived = true;
       await customer.save();
@@ -307,3 +334,4 @@ router.delete('/:id', protect, admin, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.getArchivedOriginalPhone = getArchivedOriginalPhone;

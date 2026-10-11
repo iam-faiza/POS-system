@@ -1,8 +1,14 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 const Sale = require('../models/Sale');
+const StockMovement = require('../models/StockMovement');
 const { protect, admin } = require('../middleware/authMiddleware');
+const { canReadArchivedProducts, canReadLowStockThreshold } = require('../utils/productAccess');
+const { stockValueError } = require('../utils/inventoryValidation');
+const { saveInventoryAdjustment } = require('../services/inventoryService');
 
 // Normalize SKU consistently
 const normalizeSku = (sku) => String(sku || '').trim().toUpperCase();
@@ -24,7 +30,7 @@ const validateProduct = ({ name, sku, category, price, stockQuantity, lowStockTh
     return 'SKU must be 3-50 characters and contain only letters, numbers, hyphens, or underscores';
   }
 
-  if (!category) {
+  if (!mongoose.isObjectIdOrHexString(category)) {
     return 'Category is required';
   }
 
@@ -33,15 +39,11 @@ const validateProduct = ({ name, sku, category, price, stockQuantity, lowStockTh
     return 'Price must be greater than 0';
   }
 
-  const numericStock = Number(stockQuantity);
-  if (!Number.isFinite(numericStock) || numericStock < 0) {
-    return 'Stock quantity cannot be negative';
-  }
+  const stockError = stockValueError(stockQuantity, 'Stock quantity');
+  if (stockError) return stockError;
 
-  const numericThreshold = Number(lowStockThreshold);
-  if (!Number.isFinite(numericThreshold) || numericThreshold < 0) {
-    return 'Low stock threshold cannot be negative';
-  }
+  const thresholdError = stockValueError(lowStockThreshold, 'Low stock threshold');
+  if (thresholdError) return thresholdError;
 
   return null;
 };
@@ -51,6 +53,10 @@ const validateProduct = ({ name, sku, category, price, stockQuantity, lowStockTh
 router.get('/', protect, async (req, res) => {
   try {
     const { search, category, activeOnly, includeArchived } = req.query;
+    if (!canReadArchivedProducts(req.user.role, includeArchived)) {
+      return res.status(403).json({ message: 'Not authorized as an admin' });
+    }
+
     let query = {};
 
     // Default: only active products. activeOnly=true or omitting includeArchived=true both give same result.
@@ -77,7 +83,9 @@ router.get('/', protect, async (req, res) => {
       ];
     }
 
-    const products = await Product.find(query).populate('category', 'name').sort({ name: 1 });
+    let productsQuery = Product.find(query).populate('category', 'name').sort({ name: 1 });
+    if (!canReadLowStockThreshold(req.user.role)) productsQuery = productsQuery.select('-lowStockThreshold');
+    const products = await productsQuery;
     res.json(products);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -136,6 +144,24 @@ router.patch('/:id/restore', protect, admin, async (req, res) => {
   }
 });
 
+router.get('/:id/stock-movements', protect, admin, async (req, res) => {
+  if (!mongoose.isObjectIdOrHexString(req.params.id)) {
+    return res.status(400).json({ message: 'Product ID is invalid' });
+  }
+  try {
+    const productExists = await Product.exists({ _id: req.params.id });
+    if (!productExists) return res.status(404).json({ message: 'Product not found' });
+    const movements = await StockMovement.find({ product: req.params.id })
+      .populate('user', 'name')
+      .populate('sale', 'invoiceNumber')
+      .sort({ createdAt: -1 })
+      .limit(100);
+    res.json(movements);
+  } catch (error) {
+    res.status(500).json({ message: 'Unable to load stock movements' });
+  }
+});
+
 // Create product (Admin only)
 router.post('/', protect, admin, async (req, res) => {
   const {
@@ -163,25 +189,48 @@ router.post('/', protect, admin, async (req, res) => {
     return res.status(400).json({ message: validationError });
   }
 
+  let session;
   try {
-    const existingProduct = await Product.findOne({ sku: normalizedSku });
+    session = await mongoose.startSession();
+    let createdProduct;
+    await session.withTransaction(async () => {
+      const categoryDoc = await Category.findById(category).session(session);
+      if (!categoryDoc) throw Object.assign(new Error('Category not found'), { status: 400 });
 
-    if (existingProduct) {
-      return res.status(400).json({
-        message: 'A product with this SKU already exists'
+      const categoryUpdate = await Category.updateOne(
+        { _id: category },
+        { $inc: { referenceVersion: 1 } },
+        { session }
+      );
+      if (categoryUpdate.matchedCount !== 1) throw Object.assign(new Error('Category not found'), { status: 400 });
+
+      const existingProduct = await Product.findOne({ sku: normalizedSku }).session(session);
+      if (existingProduct) {
+        throw Object.assign(new Error('A product with this SKU already exists'), { status: 400 });
+      }
+
+      const product = new Product({
+        name: trimmedName,
+        sku: normalizedSku,
+        category,
+        price: Number(price),
+        stockQuantity: Number(stockQuantity),
+        lowStockThreshold: Number(lowStockThreshold)
       });
-    }
+      createdProduct = await product.save({ session });
 
-    const product = new Product({
-      name: trimmedName,
-      sku: normalizedSku,
-      category,
-      price: Number(price),
-      stockQuantity: Number(stockQuantity),
-      lowStockThreshold: Number(lowStockThreshold)
+      if (product.stockQuantity > 0) {
+        await new StockMovement({
+          product: product._id,
+          quantityDelta: product.stockQuantity,
+          quantityBefore: 0,
+          quantityAfter: product.stockQuantity,
+          type: 'adjustment',
+          reason: 'Initial product stock',
+          user: req.user.id
+        }).save({ session });
+      }
     });
-
-    const createdProduct = await product.save();
     res.status(201).json(createdProduct);
   } catch (error) {
     if (error.code === 11000) {
@@ -190,86 +239,102 @@ router.post('/', protect, admin, async (req, res) => {
       });
     }
 
-    res.status(400).json({ message: error.message });
+    res.status(error.status || 400).json({ message: error.message });
+  } finally {
+    if (session) await session.endSession();
   }
 });
 
 // Update product (Admin only)
 router.put('/:id', protect, admin, async (req, res) => {
-  const {
-    name,
-    sku,
-    category,
-    price,
-    stockQuantity,
-    lowStockThreshold
-  } = req.body;
-
+  const { name, sku, category, price, stockQuantity, lowStockThreshold } = req.body;
+  if (req.body.stockAdjustmentReason !== undefined &&
+      (typeof req.body.stockAdjustmentReason !== 'string' || req.body.stockAdjustmentReason.trim().length > 160)) {
+    return res.status(400).json({ message: 'Stock adjustment reason cannot exceed 160 characters' });
+  }
+  let session;
   try {
-    const product = await Product.findById(req.params.id);
+    session = await mongoose.startSession();
+    let updatedProduct;
+    await session.withTransaction(async () => {
+      const product = await Product.findById(req.params.id).session(session);
+      if (!product) throw Object.assign(new Error('Product not found'), { status: 404 });
+      if (product.isArchived) {
+        throw Object.assign(new Error('Restore the product before editing it'), { status: 409 });
+      }
 
-    if (!product) {
-      return res.status(404).json({
-        message: 'Product not found'
+      const updatedName = name !== undefined ? String(name).trim() : product.name;
+      const updatedSku = sku !== undefined ? normalizeSku(sku) : product.sku;
+      const updatedCategory = category !== undefined ? category : product.category;
+      const updatedPrice = price !== undefined ? Number(price) : product.price;
+      const updatedStock = stockQuantity !== undefined ? stockQuantity : product.stockQuantity;
+      const updatedThreshold = lowStockThreshold !== undefined ? lowStockThreshold : product.lowStockThreshold;
+
+      const validationError = validateProduct({
+        name: updatedName,
+        sku: updatedSku,
+        category: updatedCategory,
+        price: updatedPrice,
+        stockQuantity: updatedStock,
+        lowStockThreshold: updatedThreshold
       });
-    }
+      if (validationError) throw Object.assign(new Error(validationError), { status: 400 });
 
-    const updatedName = name !== undefined
-      ? String(name).trim()
-      : product.name;
+      const targetCategoryId = String(updatedCategory);
+      const targetCategory = await Category.findById(targetCategoryId).session(session);
+      if (!targetCategory) throw Object.assign(new Error('Category not found'), { status: 400 });
 
-    const updatedSku = sku !== undefined
-      ? normalizeSku(sku)
-      : product.sku;
+      const duplicateProduct = await Product.findOne({
+        sku: updatedSku,
+        _id: { $ne: product._id }
+      }).session(session);
+      if (duplicateProduct) {
+        throw Object.assign(new Error('A product with this SKU already exists'), { status: 400 });
+      }
 
-    const updatedCategory = category !== undefined
-      ? category
-      : product.category;
+      const previousStock = product.stockQuantity;
+      const previousCategoryId = String(product.category);
+      if (previousCategoryId !== targetCategoryId) {
+        const oldCategoryUpdate = await Category.updateOne(
+          { _id: previousCategoryId },
+          { $inc: { referenceVersion: 1 } },
+          { session }
+        );
+        if (oldCategoryUpdate.matchedCount !== 1) {
+          throw Object.assign(new Error('Previous category not found'), { status: 409 });
+        }
+        const targetCategoryUpdate = await Category.updateOne(
+          { _id: targetCategoryId },
+          { $inc: { referenceVersion: 1 } },
+          { session }
+        );
+        if (targetCategoryUpdate.matchedCount !== 1) {
+          throw Object.assign(new Error('Category not found'), { status: 409 });
+        }
+      }
 
-    const updatedPrice = price !== undefined
-      ? Number(price)
-      : product.price;
+      product.name = updatedName;
+      product.sku = updatedSku;
+      product.category = targetCategoryId;
+      product.price = updatedPrice;
+      product.lowStockThreshold = Number(updatedThreshold);
 
-    const updatedStock = stockQuantity !== undefined
-      ? Number(stockQuantity)
-      : product.stockQuantity;
-
-    const updatedThreshold = lowStockThreshold !== undefined
-      ? Number(lowStockThreshold)
-      : product.lowStockThreshold;
-
-    const validationError = validateProduct({
-      name: updatedName,
-      sku: updatedSku,
-      category: updatedCategory,
-      price: updatedPrice,
-      stockQuantity: updatedStock,
-      lowStockThreshold: updatedThreshold
+      if (previousStock !== Number(updatedStock)) {
+        const reason = typeof req.body.stockAdjustmentReason === 'string'
+          ? req.body.stockAdjustmentReason.trim()
+          : '';
+        updatedProduct = await saveInventoryAdjustment({
+          product,
+          quantityAfter: Number(updatedStock),
+          userId: req.user.id,
+          reason,
+          session,
+          StockMovementModel: StockMovement
+        });
+      } else {
+        updatedProduct = await product.save({ session });
+      }
     });
-
-    if (validationError) {
-      return res.status(400).json({ message: validationError });
-    }
-
-    const duplicateProduct = await Product.findOne({
-      sku: updatedSku,
-      _id: { $ne: product._id }
-    });
-
-    if (duplicateProduct) {
-      return res.status(400).json({
-        message: 'A product with this SKU already exists'
-      });
-    }
-
-    product.name = updatedName;
-    product.sku = updatedSku;
-    product.category = updatedCategory;
-    product.price = updatedPrice;
-    product.stockQuantity = updatedStock;
-    product.lowStockThreshold = updatedThreshold;
-
-    const updatedProduct = await product.save();
 
     res.json(updatedProduct);
   } catch (error) {
@@ -279,7 +344,9 @@ router.put('/:id', protect, admin, async (req, res) => {
       });
     }
 
-    res.status(400).json({ message: error.message });
+    res.status(error.status || 400).json({ message: error.message });
+  } finally {
+    if (session) await session.endSession();
   }
 });
 
@@ -298,9 +365,12 @@ router.delete('/', protect, admin, async (req, res) => {
       });
     }
 
-    // Find all product IDs referenced across all sales
+    // Preserve products referenced by either sales or the stock audit log.
     const salesWithItems = await Sale.distinct('items.productId');
-    const referencedIds = salesWithItems.filter(id => id != null);
+    const movedProductIds = await StockMovement.distinct('product');
+    const referencedIds = [...new Map([...salesWithItems, ...movedProductIds]
+      .filter(id => id != null)
+      .map(id => [String(id), id])).values()];
 
     // 1. Permanently delete products with NO historical sales
     const deleteResult = await Product.deleteMany({ _id: { $nin: referencedIds } });
@@ -315,11 +385,7 @@ router.delete('/', protect, admin, async (req, res) => {
       });
 
       for (const prod of productsToArchive) {
-        if (!prod.name.includes('(Archived)')) {
-          prod.name = `${prod.name} (Archived)`;
-        }
         prod.isArchived = true;
-        prod.stockQuantity = 0;
         await prod.save();
         archivedCount++;
       }
@@ -347,19 +413,18 @@ router.delete('/:id', protect, admin, async (req, res) => {
     }
 
     // Check if referenced in historical sales
-    const salesCount = await Sale.countDocuments({ 'items.productId': req.params.id });
+    const [salesCount, movementCount] = await Promise.all([
+      Sale.countDocuments({ 'items.productId': req.params.id }),
+      StockMovement.countDocuments({ product: req.params.id })
+    ]);
 
-    if (salesCount > 0) {
-      // Historical sales exist: Safe archive to preserve receipts and records
-      if (!product.name.includes('(Archived)')) {
-        product.name = `${product.name} (Archived)`;
-      }
+    if (salesCount > 0 || movementCount > 0) {
+      // Historical references must retain both the product and its movement log.
       product.isArchived = true;
-      product.stockQuantity = 0;
       await product.save();
 
       return res.json({
-        message: `Product is referenced in ${salesCount} historical sales. Safely archived to preserve transaction and receipt history.`,
+        message: 'Product is referenced by historical records and was archived to preserve history.',
         archived: true
       });
     }
@@ -373,3 +438,5 @@ router.delete('/:id', protect, admin, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.validateProduct = validateProduct;
+module.exports.normalizeSku = normalizeSku;

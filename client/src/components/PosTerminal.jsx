@@ -3,9 +3,11 @@ import API from '../services/api';
 import { Search, Plus, Minus, Trash2, CreditCard, DollarSign } from 'lucide-react';
 import ReceiptModal from './ReceiptModal';
 import { useSettings } from '../context/SettingsContext';
+import { localizeCustomerValidationError, normalizePakistaniPhone, validateCustomerDetails } from '../utils/customerValidation';
+import AccessibleDialog from './AccessibleDialog';
 
 export default function PosTerminal({ user }) {
-  const { t, formatPrice, currency } = useSettings();
+  const { t, formatPrice } = useSettings();
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -20,14 +22,10 @@ export default function PosTerminal({ user }) {
   const [newCustomerForm, setNewCustomerForm] = useState({ name: '', phone: '', email: '' });
   const [customerFormError, setCustomerFormError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [cardDetails, setCardDetails] = useState({
-    cardType: 'Visa',
-    cardholderName: '',
-    last4: '',
-    transactionRef: ''
-  });
+  const [cardType, setCardType] = useState('Visa');
+  const [cashReceived, setCashReceived] = useState('');
   const [discount, setDiscount] = useState(0);
-  const [taxRate] = useState(5);
+  const [taxRate, setTaxRate] = useState(5);
   const [completedSale, setCompletedSale] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -42,15 +40,17 @@ export default function PosTerminal({ user }) {
 
   const fetchData = async () => {
     try {
-      const [prodRes, catRes] = await Promise.all([
+      const [prodRes, catRes, settingsRes] = await Promise.all([
         API.get('/products?activeOnly=true'),
-        API.get('/categories')
+        API.get('/categories'),
+        API.get('/sales/settings')
       ]);
       setProducts(prodRes.data);
       setCategories(catRes.data);
+      setTaxRate(settingsRes.data.taxRate);
     } catch (err) {
       console.error(err);
-      setError('Failed to load POS data');
+      setError(t('failed_load_pos'));
     }
   };
 
@@ -73,14 +73,14 @@ export default function PosTerminal({ user }) {
 
   const addToCart = (product) => {
     if (product.stockQuantity <= 0) {
-      alert('Product is out of stock!');
+      alert(t('out_of_stock'));
       return;
     }
     setCart((prevCart) => {
       const existing = prevCart.find((item) => item.productId === product._id);
       if (existing) {
         if (existing.quantity >= product.stockQuantity) {
-          alert('Cannot add more than available stock.');
+          alert(t('max_stock_reached'));
           return prevCart;
         }
         return prevCart.map((item) =>
@@ -111,7 +111,7 @@ export default function PosTerminal({ user }) {
           if (item.productId === productId) {
             const newQty = item.quantity + delta;
             if (newQty > item.maxStock) {
-              alert('Exceeds available stock');
+              alert(t('exceeds_stock'));
               return item;
             }
             return { ...item, quantity: newQty };
@@ -131,27 +131,9 @@ export default function PosTerminal({ user }) {
   const discountAmount = Number(discount || 0);
   const total = Number((subtotal + tax - discountAmount).toFixed(2));
 
-  const validateCardDetails = () => {
-    if (!cardDetails.cardholderName.trim()) {
-      setError('Cardholder name is required for card payments.');
-      return false;
-    }
-    if (!/^\d{4}$/.test(cardDetails.last4)) {
-      setError('Please enter exactly 4 digits for the card number.');
-      return false;
-    }
-    if (!cardDetails.transactionRef.trim()) {
-      setError('Auth reference / transaction ref is required.');
-      return false;
-    }
-    return true;
-  };
-
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setError('');
-
-    if (paymentMethod === 'card' && !validateCardDetails()) return;
 
     setLoading(true);
     try {
@@ -169,14 +151,8 @@ export default function PosTerminal({ user }) {
         discount: discountAmount,
         total: total > 0 ? total : 0,
         paymentMethod,
-        ...(paymentMethod === 'card' && {
-          paymentDetails: {
-            cardType: cardDetails.cardType,
-            cardholderName: cardDetails.cardholderName.trim(),
-            last4: cardDetails.last4,
-            transactionRef: cardDetails.transactionRef.trim()
-          }
-        })
+        ...(paymentMethod === 'cash' && cashReceived !== '' && { cashReceived: Number(cashReceived) }),
+        ...(paymentMethod === 'card' && { paymentDetails: { cardType } })
       };
 
       const res = await API.post('/sales', saleData);
@@ -185,11 +161,12 @@ export default function PosTerminal({ user }) {
       setDiscount(0);
       setSelectedCustomer(null);
       setCustomerSearchQuery('');
-      setCardDetails({ cardType: 'Visa', cardholderName: '', last4: '', transactionRef: '' });
+      setCashReceived('');
+      setCardType('Visa');
       setPaymentMethod('cash');
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Checkout failed');
+      setError(err.response?.data?.message || t('checkout_failed'));
     } finally {
       setLoading(false);
     }
@@ -215,6 +192,7 @@ export default function PosTerminal({ user }) {
             <Search size={18} />
             <input
               type="text"
+              aria-label={t('search_products')}
               placeholder={t('search_products')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -242,20 +220,22 @@ export default function PosTerminal({ user }) {
 
         <div className="product-grid">
           {filteredProducts.map((p) => (
-            <div
+            <button
+              type="button"
               key={p._id}
               className={`product-card ${p.stockQuantity <= 0 ? 'out-of-stock' : ''}`}
+              aria-label={`${p.name}, SKU ${p.sku}, ${t('stock')} ${p.stockQuantity}, ${formatPrice(p.price)}`}
               onClick={() => addToCart(p)}
             >
               <div className="product-name">{p.name}</div>
               <div className="product-sku">SKU: {p.sku}</div>
               <div className="product-footer">
                 <span className="product-price">{formatPrice(p.price)}</span>
-                <span className={`stock-badge ${p.stockQuantity <= p.lowStockThreshold ? 'low' : ''}`}>
+                <span className={`stock-badge ${user?.role === 'admin' && p.stockQuantity <= p.lowStockThreshold ? 'low' : ''}`}>
                   {t('stock')}: {p.stockQuantity}
                 </span>
               </div>
-            </div>
+            </button>
           ))}
           {filteredProducts.length === 0 && (
             <div className="no-products">{t('no_products')}</div>
@@ -293,7 +273,7 @@ export default function PosTerminal({ user }) {
             <div className="selected-customer-card">
               <div className="selected-customer-info">
                 <strong>{selectedCustomer.name}</strong>
-                <span>{selectedCustomer.phone}{selectedCustomer.marketingConsent ? ' (SMS Opted-In)' : ''}</span>
+                <span>{selectedCustomer.phone}</span>
               </div>
               <button
                 type="button"
@@ -309,7 +289,8 @@ export default function PosTerminal({ user }) {
                 <Search size={16} />
                 <input
                   type="text"
-                  placeholder="Search by name or phone..."
+                  aria-label={t('search_customer_pos')}
+                  placeholder={t('search_customer_pos')}
                   value={customerSearchQuery}
                   onChange={(e) => {
                     handleCustomerSearch(e.target.value);
@@ -320,7 +301,8 @@ export default function PosTerminal({ user }) {
               </div>
               {showCustomerDropdown && (
                 <div className="customer-dropdown">
-                  <div
+                  <button
+                    type="button"
                     className="customer-dropdown-item walk-in"
                     onClick={() => {
                       setSelectedCustomer(null);
@@ -329,10 +311,11 @@ export default function PosTerminal({ user }) {
                     }}
                   >
                     <strong>{t('walk_in_customer')}</strong>
-                    <span className="muted">No customer assigned</span>
-                  </div>
+                    <span className="muted">{t('no_customer_assigned')}</span>
+                  </button>
                   {customers.map((c) => (
-                    <div
+                    <button
+                      type="button"
                       key={c._id}
                       className="customer-dropdown-item"
                       onClick={() => {
@@ -343,10 +326,10 @@ export default function PosTerminal({ user }) {
                     >
                       <strong>{c.name}</strong>
                       <span>{c.phone}</span>
-                    </div>
+                    </button>
                   ))}
                   {customers.length === 0 && customerSearchQuery.trim().length > 0 && (
-                    <div className="customer-dropdown-no-results">No customers found</div>
+                    <div className="customer-dropdown-no-results">{t('customer_search_empty')}</div>
                   )}
                 </div>
               )}
@@ -363,10 +346,10 @@ export default function PosTerminal({ user }) {
                 <span className="cart-item-price">{formatPrice(item.price * item.quantity)}</span>
               </div>
               <div className="cart-item-actions">
-                <button onClick={() => updateQuantity(item.productId, -1)}><Minus size={14} /></button>
+                <button aria-label={t('decrease_quantity')} onClick={() => updateQuantity(item.productId, -1)}><Minus size={14} /></button>
                 <span>{item.quantity}</span>
-                <button onClick={() => updateQuantity(item.productId, 1)}><Plus size={14} /></button>
-                <button className="delete-btn" onClick={() => removeFromCart(item.productId)}><Trash2 size={14} /></button>
+                <button aria-label={t('increase_quantity')} onClick={() => updateQuantity(item.productId, 1)}><Plus size={14} /></button>
+                <button className="delete-btn" aria-label={t('remove_item')} onClick={() => removeFromCart(item.productId)}><Trash2 size={14} /></button>
               </div>
             </div>
           ))}
@@ -382,12 +365,13 @@ export default function PosTerminal({ user }) {
             <span>{formatPrice(subtotal)}</span>
           </div>
           <div className="summary-row">
-            <span>{t('tax')}</span>
+            <span>{t('tax')} ({taxRate}%)</span>
             <span>{formatPrice(tax)}</span>
           </div>
           <div className="summary-row">
-            <span>{t('discount')} (₨)</span>
+            <label htmlFor="pos-discount">{t('discount')} (PKR)</label>
             <input
+              id="pos-discount"
               type="number"
               min="0"
               value={discount}
@@ -399,23 +383,21 @@ export default function PosTerminal({ user }) {
             <span>{t('total_due')}</span>
             <span>{formatPrice(total > 0 ? total : 0)}</span>
           </div>
-          {currency !== 'PKR' && (
-            <div className="summary-row" style={{ fontSize: '11px', color: '#6366f1' }}>
-              <span>PKR base:</span>
-              <span>₨ {(total > 0 ? total : 0).toFixed(2)}</span>
-            </div>
-          )}
         </div>
 
         {/* Payment Method Selection */}
         <div className="payment-methods">
           <button
+            type="button"
+            aria-pressed={paymentMethod === 'cash'}
             className={paymentMethod === 'cash' ? 'pay-btn active' : 'pay-btn'}
             onClick={() => setPaymentMethod('cash')}
           >
             <DollarSign size={16} /> {t('cash')}
           </button>
           <button
+            type="button"
+            aria-pressed={paymentMethod === 'card'}
             className={paymentMethod === 'card' ? 'pay-btn active' : 'pay-btn'}
             onClick={() => setPaymentMethod('card')}
           >
@@ -423,15 +405,34 @@ export default function PosTerminal({ user }) {
           </button>
         </div>
 
-        {/* Card Details Form (simulated – no real processing) */}
+        {paymentMethod === 'cash' && (
+          <div className="cash-details-form">
+            <label htmlFor="cash-received">{t('cash_received')}</label>
+            <input
+              id="cash-received"
+              type="number"
+              min={total.toFixed(2)}
+              step="0.01"
+              value={cashReceived}
+              onChange={(event) => setCashReceived(event.target.value)}
+              className="card-input"
+            />
+            <div className="cash-change-preview">
+              {t('change_due')}: {formatPrice(Math.max(0, (cashReceived === '' ? total : Number(cashReceived)) - total))}
+            </div>
+          </div>
+        )}
+
+        {/* Simulated card flow; no card payment is processed. */}
         {paymentMethod === 'card' && (
           <div className="card-details-form">
-            <p className="card-sim-notice">⚠️ Simulation only — no real payment processing</p>
+            <p className="card-sim-notice">{t('card_simulation')}</p>
             <div className="card-form-row">
-              <label>{t('card_type')}</label>
+              <label htmlFor="simulated-card-type">{t('card_type')}</label>
               <select
-                value={cardDetails.cardType}
-                onChange={(e) => setCardDetails({ ...cardDetails, cardType: e.target.value })}
+                id="simulated-card-type"
+                value={cardType}
+                onChange={(e) => setCardType(e.target.value)}
                 className="card-input"
               >
                 <option value="Visa">Visa</option>
@@ -439,43 +440,6 @@ export default function PosTerminal({ user }) {
                 <option value="Amex">Amex</option>
                 <option value="Other">Other</option>
               </select>
-            </div>
-            <div className="card-form-row">
-              <label>{t('cardholder_name')}</label>
-              <input
-                type="text"
-                placeholder="e.g. John Doe"
-                value={cardDetails.cardholderName}
-                onChange={(e) => setCardDetails({ ...cardDetails, cardholderName: e.target.value })}
-                className="card-input"
-                maxLength={60}
-              />
-            </div>
-            <div className="card-form-row">
-              <label>{t('last4_digits')}</label>
-              <input
-                type="text"
-                placeholder="1234"
-                value={cardDetails.last4}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/\D/g, '').slice(0, 4);
-                  setCardDetails({ ...cardDetails, last4: v });
-                }}
-                className="card-input"
-                maxLength={4}
-                inputMode="numeric"
-              />
-            </div>
-            <div className="card-form-row">
-              <label>{t('auth_ref')}</label>
-              <input
-                type="text"
-                placeholder="e.g. TXN-2024-001"
-                value={cardDetails.transactionRef}
-                onChange={(e) => setCardDetails({ ...cardDetails, transactionRef: e.target.value })}
-                className="card-input"
-                maxLength={40}
-              />
             </div>
           </div>
         )}
@@ -488,7 +452,7 @@ export default function PosTerminal({ user }) {
         >
           {loading
             ? t('processing')
-            : `${t('pay_and_print')} (₨ ${total > 0 ? total.toFixed(2) : '0.00'})`}
+            : `${t('pay_and_print')} (${formatPrice(total > 0 ? total : 0)})`}
         </button>
       </div>
 
@@ -506,23 +470,17 @@ export default function PosTerminal({ user }) {
 
       {/* Add Buyer Details Modal */}
       {showNewCustomerModal && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h3>Add Buyer Details</h3>
+        <AccessibleDialog className="modal" labelledBy="new-buyer-title" onClose={() => setShowNewCustomerModal(false)}>
+            <h3 id="new-buyer-title">{t('add_new_customer')}</h3>
             {customerFormError && <div className="error-alert">{customerFormError}</div>}
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
                 setCustomerFormError('');
                 const rawPhone = String(newCustomerForm.phone || '').trim();
-                if (!rawPhone) { setCustomerFormError('Phone number is required'); return; }
-                if (/[a-zA-Z]/.test(rawPhone)) { setCustomerFormError('Phone number cannot contain letters'); return; }
-                const digitsOnly = rawPhone.replace(/\D/g, '');
-                if (digitsOnly.length < 10) { setCustomerFormError('Phone number is too short'); return; }
-                if (digitsOnly.length > 13) { setCustomerFormError('Phone number is too long'); return; }
-                const pakPhoneRegex = /^(?:(?:\+92|0092|92)|0)[2-9]\d{8,9}$/;
-                if (!pakPhoneRegex.test(rawPhone.replace(/[\s\-().]/g, ''))) {
-                  setCustomerFormError('Please enter a valid Pakistani phone number (e.g., 03001234567)');
+                const phoneValidation = normalizePakistaniPhone(rawPhone);
+                if (phoneValidation.error) {
+                  setCustomerFormError(localizeCustomerValidationError(phoneValidation.error, t));
                   return;
                 }
                 try {
@@ -533,21 +491,13 @@ export default function PosTerminal({ user }) {
                     setNewCustomerForm({ name: '', phone: '', email: '', marketingConsent: false });
                     return;
                   }
-                  const rawName = String(newCustomerForm.name || '').trim();
-                  if (!rawName) { setCustomerFormError('Customer name is required for new customers'); return; }
-                  if (rawName.length < 2) { setCustomerFormError('Customer name must be at least 2 characters'); return; }
-                  if (rawName.length > 60) { setCustomerFormError('Customer name cannot exceed 60 characters'); return; }
-                  if (!/[a-zA-Z\u00C0-\u024F\u0600-\u06FF]/.test(rawName)) { setCustomerFormError('Customer name must contain at least one letter'); return; }
-                  const email = String(newCustomerForm.email || '').trim();
-                  if (email !== '') {
-                    if (/\s/.test(email)) { setCustomerFormError('Email cannot contain spaces'); return; }
-                    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-                    if (!emailRegex.test(email)) { setCustomerFormError('Please enter a valid email address'); return; }
+                  const customerValidation = validateCustomerDetails(newCustomerForm);
+                  if (customerValidation.error) {
+                    setCustomerFormError(localizeCustomerValidationError(customerValidation.error, t));
+                    return;
                   }
                   const payload = {
-                    name: newCustomerForm.name,
-                    phone: newCustomerForm.phone,
-                    email: newCustomerForm.email || undefined,
+                    ...customerValidation.data,
                     marketingConsent: newCustomerForm.marketingConsent || false
                   };
                   const res = await API.post('/customers', payload);
@@ -564,8 +514,9 @@ export default function PosTerminal({ user }) {
               className="modal-form"
             >
               <div className="form-group">
-                <label>Phone Number (Required first)</label>
+                <label htmlFor="buyer-phone">{t('buyer_phone_first')}</label>
                 <input
+                  id="buyer-phone"
                   type="text"
                   placeholder="e.g. 03001234567 or +923001234567"
                   value={newCustomerForm.phone}
@@ -573,13 +524,14 @@ export default function PosTerminal({ user }) {
                   required
                   autoFocus
                 />
-                <small style={{ color: '#64748b', fontSize: '11px', marginTop: '2px', display: 'block' }}>
-                  If this phone number exists, the customer is reused automatically.
+                <small className="field-help">
+                  {t('buyer_exists_notice')}
                 </small>
               </div>
               <div className="form-group">
-                <label>Customer Name (Required if new)</label>
+                <label htmlFor="buyer-name">{t('buyer_name_if_new')}</label>
                 <input
+                  id="buyer-name"
                   type="text"
                   placeholder="e.g. John Doe"
                   value={newCustomerForm.name}
@@ -587,8 +539,9 @@ export default function PosTerminal({ user }) {
                 />
               </div>
               <div className="form-group">
-                <label>Email (Optional)</label>
+                <label htmlFor="buyer-email">{t('email_optional')}</label>
                 <input
+                  id="buyer-email"
                   type="email"
                   placeholder="e.g. customer@example.com"
                   value={newCustomerForm.email}
@@ -604,7 +557,7 @@ export default function PosTerminal({ user }) {
                   style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                 />
                 <label htmlFor="directMarketingConsent" style={{ margin: 0, cursor: 'pointer', fontWeight: 500 }}>
-                  Opt-in for Marketing SMS
+                  {t('marketing_opt_in')}
                 </label>
               </div>
               <div className="modal-actions">
@@ -612,12 +565,11 @@ export default function PosTerminal({ user }) {
                   {t('cancel')}
                 </button>
                 <button type="submit" className="btn-primary">
-                  {t('save')} & Select
+                  {t('save_and_select')}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
     </div>
   );

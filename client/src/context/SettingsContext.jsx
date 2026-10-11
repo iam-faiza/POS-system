@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { CURRENCIES, TRANSLATIONS, formatCurrency } from '../utils/i18n';
+import { CURRENCIES, TRANSLATIONS, canConvertCurrency, formatCurrency } from '../utils/i18n';
 
 const SettingsContext = createContext();
 
@@ -13,7 +13,8 @@ export function SettingsProvider({ children }) {
   });
 
   const [currency, setCurrencyState] = useState(() => {
-    return localStorage.getItem('pos_currency') || 'PKR';
+    const storedCurrency = localStorage.getItem('pos_currency') || 'PKR';
+    return canConvertCurrency(storedCurrency) ? storedCurrency : 'PKR';
   });
 
   useEffect(() => {
@@ -42,7 +43,7 @@ export function SettingsProvider({ children }) {
   };
 
   const setCurrency = (cur) => {
-    if (CURRENCIES[cur]) {
+    if (CURRENCIES[cur] && canConvertCurrency(cur)) {
       setCurrencyState(cur);
     }
   };

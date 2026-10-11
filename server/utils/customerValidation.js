@@ -7,8 +7,8 @@ const formatCustomerName = (rawName) => {
   if (!rawName) return '';
   const trimmed = String(rawName).trim().replace(/\s+/g, ' ');
   return trimmed
-    .toLowerCase()
-    .replace(/(?:^|[\s'’.\-])[a-zA-Z\u00C0-\u024F\u0600-\u06FF]/g, (char) => char.toUpperCase());
+    .toLocaleLowerCase()
+    .replace(/(^|[\s'.’\-])(\p{L})/gu, (_match, separator, letter) => separator + letter.toLocaleUpperCase());
 };
 
 // Validate optional email address
@@ -23,7 +23,7 @@ const validateEmail = (email) => {
   }
 
   // Reject spaces or malformed basic structure
-  if (/\s/.test(trimmed)) {
+  if (trimmed.length > 254 || /\s/.test(trimmed)) {
     return { error: 'Email cannot contain spaces' };
   }
 
@@ -51,48 +51,52 @@ const validateEmail = (email) => {
 
 // Validate and normalize Pakistani phone number to canonical 923001234567 format
 const validatePhone = (phone) => {
-  const rawPhone = String(phone || '').trim();
+  if (typeof phone !== 'string') {
+    return { error: 'Please enter a valid Pakistani phone number (e.g., 03001234567)' };
+  }
+  const rawPhone = phone.trim();
 
   if (!rawPhone) {
     return { error: 'Phone number is required' };
   }
 
-  // Remove all non-digit characters for canonical comparison
-  const digitsOnly = rawPhone.replace(/\D/g, '');
-
-  // Handle various Pakistani formats:
-  // 03001234567 (11 digits) -> 923001234567
-  // +923001234567 or 923001234567 (12 digits) -> 923001234567
-  // 00923001234567 (13+ digits) -> 923001234567
-  
-  let canonical = digitsOnly;
-  if (canonical.startsWith('0092')) {
-    canonical = canonical.slice(2);
-  } else if (canonical.startsWith('0')) {
-    canonical = '92' + canonical.slice(1);
-  } else if (canonical.length === 10 && !canonical.startsWith('92')) {
-    // Possibly missing leading zero or country code? 3001234567
-    canonical = '92' + canonical;
+  if (!/^[+\d().\s-]+$/.test(rawPhone)) {
+    return { error: 'Phone number contains invalid characters' };
   }
 
-  // Basic length check for Pakistani mobile/landline with 92 prefix
-  // Mobile: 92 (2) + 3XX (3) + XXXXXXX (7) = 12 digits
-  // Landline: 92 (2) + 21/42/51 (2) + XXXXXXXX (8) = 12 digits
-  if (canonical.length < 11 || canonical.length > 13) {
+  const compact = rawPhone.replace(/[().\s-]/g, '');
+  if (!/^\+?\d+$/.test(compact)) {
+    return { error: 'Phone number format is invalid' };
+  }
+
+  let digits = compact.startsWith('+') ? compact.slice(1) : compact;
+  let canonical;
+  if (digits.startsWith('0092')) {
+    canonical = `92${digits.slice(4)}`;
+  } else if (digits.startsWith('92')) {
+    canonical = digits;
+  } else if (digits.startsWith('0')) {
+    canonical = `92${digits.slice(1)}`;
+  } else if (digits.length === 10) {
+    canonical = `92${digits}`;
+  } else {
     return { error: 'Please enter a valid Pakistani phone number (e.g., 03001234567)' };
   }
 
-  // Reject obviously invalid starts (Pakistani numbers after 92/0 start with 2-9)
-  if (!/^[1-9]/.test(canonical.slice(2))) {
-    return { error: 'Invalid phone number format' };
+  if (!/^92[2-9]\d{9}$/.test(canonical)) {
+    return { error: 'Please enter a valid Pakistani phone number (e.g., 03001234567)' };
   }
 
   return { error: null, normalized: canonical };
 };
 
 // Full customer validation
-const validateCustomer = ({ name, phone, email, marketingConsent }) => {
-  const rawName = String(name || '').trim();
+const validateCustomer = (input = {}) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { error: 'Invalid customer details' };
+  }
+  const { name, phone, email, marketingConsent } = input;
+  const rawName = String(name || '').trim().replace(/\s+/g, ' ');
 
   if (!rawName) {
     return { error: 'Customer name is required' };
@@ -104,6 +108,9 @@ const validateCustomer = ({ name, phone, email, marketingConsent }) => {
 
   if (rawName.length > 60) {
     return { error: 'Customer name cannot exceed 60 characters' };
+  }
+  if (!/[\p{L}\p{M}]/u.test(rawName) || !/^[\p{L}\p{M}]+(?:[\s'.’\-][\p{L}\p{M}]+)*$/u.test(rawName)) {
+    return { error: 'Customer name contains invalid characters' };
   }
 
   const phoneResult = validatePhone(phone);

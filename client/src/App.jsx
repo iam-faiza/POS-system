@@ -6,7 +6,7 @@ import ProductsManager from './components/ProductsManager';
 import CategoriesManager from './components/CategoriesManager';
 import CustomersManager from './components/CustomersManager';
 import SalesHistory from './components/SalesHistory';
-import './index.css';
+import Dashboard from './components/Dashboard';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -39,6 +39,7 @@ export default function App() {
         onLogout={handleLogout}
       />
       <main className="main-content">
+        {user.role === 'admin' && activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'pos' && <PosTerminal user={user} />}
         {activeTab === 'products' && <ProductsManager user={user} />}
         {activeTab === 'categories' && <CategoriesManager user={user} />}

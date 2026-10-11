@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import API from '../services/api';
 import { Lock, Mail, Store, Eye, EyeOff } from 'lucide-react';
+import { useSettings } from '../context/SettingsContext';
 
 export default function Login({ onLogin }) {
+  const { t } = useSettings();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -18,8 +20,8 @@ export default function Login({ onLogin }) {
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data));
       onLogin(res.data);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Invalid email or password. Please try again.');
+    } catch {
+      setError(t('invalid_credentials'));
     } finally {
       setLoading(false);
     }
@@ -32,16 +34,17 @@ export default function Login({ onLogin }) {
           <div className="login-icon-wrap">
             <Store size={36} color="#12135bc7" />
           </div>
-          <h1>RetailPOS Pro</h1>
-          <p>Point of Sale & Inventory System</p>
+          <h1>{t('login_title')}</h1>
+          <p>{t('login_subtitle')}</p>
         </div>
 
-        {error && <div className="error-alert">{error}</div>}
+        {error && <div className="error-alert" role="alert">{error}</div>}
 
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
-            <label><Mail size={16} /> Email Address</label>
+            <label htmlFor="login-email"><Mail size={16} /> {t('email_address')}</label>
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -51,9 +54,10 @@ export default function Login({ onLogin }) {
           </div>
 
           <div className="form-group">
-            <label><Lock size={16} /> Password</label>
+            <label htmlFor="login-password"><Lock size={16} /> {t('password')}</label>
             <div className="password-input-wrapper">
               <input
+                id="login-password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -64,8 +68,7 @@ export default function Login({ onLogin }) {
                 type="button"
                 className="password-toggle-btn"
                 onClick={() => setShowPassword(!showPassword)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                tabIndex="-1"
+                aria-label={showPassword ? t('hide_password') : t('show_password')}
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
@@ -73,7 +76,7 @@ export default function Login({ onLogin }) {
           </div>
 
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? t('signing_in') : t('sign_in')}
           </button>
         </form>
       </div>
