@@ -5,7 +5,7 @@ const { CheckoutError, createSale } = require('../services/checkoutService');
 const cashierId = '507f1f77bcf86cd799439012';
 const productId = '507f1f77bcf86cd799439011';
 
-function createHarness({ stock = 5, failStockUpdate = false, failMovementSave = false, failSaleSave = false, topology = 'replicaSet' } = {}) {
+function createHarness({ stock = 5, failStockUpdate = false, failMovementSave = false, failSaleSave = false, topology = 'replicaSet', customerMap = {} } = {}) {
   const state = {
     stock,
     sales: [],
@@ -83,7 +83,7 @@ function createHarness({ stock = 5, failStockUpdate = false, failMovementSave = 
       }
     },
     Customer: {
-      findById: () => ({ session: async () => null })
+      findById: (id) => ({ session: async () => customerMap[String(id)] || null })
     },
     Sale: FakeSale,
     StockMovement: FakeStockMovement
@@ -264,4 +264,45 @@ test('fails closed when the connected MongoDB is standalone', async () => {
   assert.equal(harness.state.updateAttempts, 0);
   assert.equal(harness.state.stock, 5);
   assert.equal(harness.state.sales.length, 0);
+});
+
+test('rejects duplicate product IDs in the same sale item list', async () => {
+  const harness = createHarness();
+  await assert.rejects(
+    checkout(harness, request({
+      items: [
+        { productId, quantity: 1 },
+        { productId, quantity: 1 }
+      ]
+    })),
+    (error) => error instanceof CheckoutError && error.status === 400 && /once in a sale/.test(error.message)
+  );
+  assert.equal(harness.state.sales.length, 0);
+});
+
+test('rejects unaccepted payment methods', async () => {
+  const harness = createHarness();
+  await assert.rejects(
+    checkout(harness, request({ paymentMethod: 'crypto' })),
+    (error) => error instanceof CheckoutError && error.status === 400
+  );
+  assert.equal(harness.state.sales.length, 0);
+});
+
+test('attaches customer snapshot on valid customer ID and rejects unknown customer ID', async () => {
+  const validCustId = '507f1f77bcf86cd799439099';
+  const unknownCustId = '507f1f77bcf86cd799439088';
+  const customerMap = {
+    [validCustId]: { name: 'John Doe', phone: '923001234567', email: 'john@example.com' }
+  };
+  const harness = createHarness({ customerMap });
+
+  const sale = await checkout(harness, request({ customer: validCustId }));
+  assert.equal(sale.customer, validCustId);
+  assert.deepEqual(sale.customerSnapshot, { name: 'John Doe', phone: '923001234567', email: 'john@example.com' });
+
+  await assert.rejects(
+    checkout(harness, request({ customer: unknownCustId })),
+    (error) => error instanceof CheckoutError && error.status === 404
+  );
 });
