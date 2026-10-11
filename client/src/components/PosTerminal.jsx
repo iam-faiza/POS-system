@@ -1,45 +1,74 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import API from '../services/api';
-import { Search, Plus, Minus, Trash2, CreditCard, DollarSign, CheckCircle, Printer } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, CreditCard, DollarSign } from 'lucide-react';
+import ReceiptModal from './ReceiptModal';
+import { useSettings } from '../context/SettingsContext';
 
-export default function PosTerminal() {
+export default function PosTerminal({ user }) {
+  const { t, formatPrice, currency } = useSettings();
+
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState([]);
-  const [selectedCustomer, setSelectedCustomer] = useState(null); // Customer object or null
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [newCustomerForm, setNewCustomerForm] = useState({ name: '', phone: '', email: '' });
   const [customerFormError, setCustomerFormError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [cardDetails, setCardDetails] = useState({
+    cardType: 'Visa',
+    cardholderName: '',
+    last4: '',
+    transactionRef: ''
+  });
   const [discount, setDiscount] = useState(0);
-  const [taxRate, setTaxRate] = useState(5); // 5% default tax
+  const [taxRate] = useState(5);
   const [completedSale, setCompletedSale] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const searchTimeoutRef = useRef(null);
 
   useEffect(() => {
     fetchData();
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
   }, []);
 
   const fetchData = async () => {
     try {
-      const [prodRes, catRes, custRes] = await Promise.all([
-        API.get('/products'),
-        API.get('/categories'),
-        API.get('/customers')
+      const [prodRes, catRes] = await Promise.all([
+        API.get('/products?activeOnly=true'),
+        API.get('/categories')
       ]);
       setProducts(prodRes.data);
       setCategories(catRes.data);
-      setCustomers(custRes.data);
     } catch (err) {
       console.error(err);
       setError('Failed to load POS data');
     }
+  };
+
+  const handleCustomerSearch = async (query) => {
+    setCustomerSearchQuery(query);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (!query || query.trim().length < 1) {
+      setCustomers([]);
+      return;
+    }
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await API.get(`/customers?search=${encodeURIComponent(query)}`);
+        setCustomers(res.data);
+      } catch (err) {
+        console.error('Search failed', err);
+      }
+    }, 300);
   };
 
   const addToCart = (product) => {
@@ -76,8 +105,8 @@ export default function PosTerminal() {
   };
 
   const updateQuantity = (productId, delta) => {
-    setCart((prevCart) => {
-      return prevCart
+    setCart((prevCart) =>
+      prevCart
         .map((item) => {
           if (item.productId === productId) {
             const newQty = item.quantity + delta;
@@ -89,8 +118,8 @@ export default function PosTerminal() {
           }
           return item;
         })
-        .filter((item) => item.quantity > 0);
-    });
+        .filter((item) => item.quantity > 0)
+    );
   };
 
   const removeFromCart = (productId) => {
@@ -102,11 +131,29 @@ export default function PosTerminal() {
   const discountAmount = Number(discount || 0);
   const total = Number((subtotal + tax - discountAmount).toFixed(2));
 
+  const validateCardDetails = () => {
+    if (!cardDetails.cardholderName.trim()) {
+      setError('Cardholder name is required for card payments.');
+      return false;
+    }
+    if (!/^\d{4}$/.test(cardDetails.last4)) {
+      setError('Please enter exactly 4 digits for the card number.');
+      return false;
+    }
+    if (!cardDetails.transactionRef.trim()) {
+      setError('Auth reference / transaction ref is required.');
+      return false;
+    }
+    return true;
+  };
+
   const handleCheckout = async () => {
     if (cart.length === 0) return;
-    setLoading(true);
     setError('');
 
+    if (paymentMethod === 'card' && !validateCardDetails()) return;
+
+    setLoading(true);
     try {
       const saleData = {
         customer: selectedCustomer?._id || undefined,
@@ -121,7 +168,15 @@ export default function PosTerminal() {
         tax,
         discount: discountAmount,
         total: total > 0 ? total : 0,
-        paymentMethod
+        paymentMethod,
+        ...(paymentMethod === 'card' && {
+          paymentDetails: {
+            cardType: cardDetails.cardType,
+            cardholderName: cardDetails.cardholderName.trim(),
+            last4: cardDetails.last4,
+            transactionRef: cardDetails.transactionRef.trim()
+          }
+        })
       };
 
       const res = await API.post('/sales', saleData);
@@ -130,7 +185,9 @@ export default function PosTerminal() {
       setDiscount(0);
       setSelectedCustomer(null);
       setCustomerSearchQuery('');
-      fetchData(); // Refresh product stock
+      setCardDetails({ cardType: 'Visa', cardholderName: '', last4: '', transactionRef: '' });
+      setPaymentMethod('cash');
+      fetchData();
     } catch (err) {
       setError(err.response?.data?.message || 'Checkout failed');
     } finally {
@@ -139,8 +196,13 @@ export default function PosTerminal() {
   };
 
   const filteredProducts = products.filter((p) => {
-    const matchesCat = selectedCategory === 'all' || p.category?._id === selectedCategory || p.category === selectedCategory;
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.sku.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCat =
+      selectedCategory === 'all' ||
+      p.category?._id === selectedCategory ||
+      p.category === selectedCategory;
+    const matchesSearch =
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.sku.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCat && matchesSearch;
   });
 
@@ -153,7 +215,7 @@ export default function PosTerminal() {
             <Search size={18} />
             <input
               type="text"
-              placeholder="Search by name or SKU..."
+              placeholder={t('search_products')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -165,7 +227,7 @@ export default function PosTerminal() {
             className={selectedCategory === 'all' ? 'cat-tab active' : 'cat-tab'}
             onClick={() => setSelectedCategory('all')}
           >
-            All Products
+            {t('all_categories')}
           </button>
           {categories.map((cat) => (
             <button
@@ -188,15 +250,15 @@ export default function PosTerminal() {
               <div className="product-name">{p.name}</div>
               <div className="product-sku">SKU: {p.sku}</div>
               <div className="product-footer">
-                <span className="product-price">${p.price.toFixed(2)}</span>
+                <span className="product-price">{formatPrice(p.price)}</span>
                 <span className={`stock-badge ${p.stockQuantity <= p.lowStockThreshold ? 'low' : ''}`}>
-                  Stock: {p.stockQuantity}
+                  {t('stock')}: {p.stockQuantity}
                 </span>
               </div>
             </div>
           ))}
           {filteredProducts.length === 0 && (
-            <div className="no-products">No products found</div>
+            <div className="no-products">{t('no_products')}</div>
           )}
         </div>
       </div>
@@ -204,25 +266,26 @@ export default function PosTerminal() {
       {/* Cart & Checkout Panel */}
       <div className="pos-cart-panel">
         <div className="cart-header">
-          <h3>Current Sale</h3>
-          <span className="cart-count">{cart.reduce((s, i) => s + i.quantity, 0)} items</span>
+          <h3>{t('cart')}</h3>
+          <span className="cart-count">{cart.reduce((s, i) => s + i.quantity, 0)} {t('items')}</span>
         </div>
 
         {error && <div className="error-alert">{error}</div>}
 
+        {/* Customer Selection */}
         <div className="customer-select-area">
           <div className="customer-select-header">
-            <label>Buyer / Customer:</label>
+            <label>{t('customer_select')}:</label>
             <button
               type="button"
               className="btn-link-sm"
               onClick={() => {
                 setCustomerFormError('');
-                setNewCustomerForm({ phone: '', name: '', email: '', marketingConsent: false, step: 'phone', existingCustomer: null });
+                setNewCustomerForm({ phone: '', name: '', email: '', marketingConsent: false });
                 setShowNewCustomerModal(true);
               }}
             >
-              <Plus size={14} /> Add Buyer Details
+              <Plus size={14} /> {t('add_new_customer')}
             </button>
           </div>
 
@@ -230,7 +293,7 @@ export default function PosTerminal() {
             <div className="selected-customer-card">
               <div className="selected-customer-info">
                 <strong>{selectedCustomer.name}</strong>
-                <span>{selectedCustomer.phone} {selectedCustomer.marketingConsent ? '(SMS Opted-In)' : ''}</span>
+                <span>{selectedCustomer.phone}{selectedCustomer.marketingConsent ? ' (SMS Opted-In)' : ''}</span>
               </div>
               <button
                 type="button"
@@ -249,13 +312,12 @@ export default function PosTerminal() {
                   placeholder="Search by name or phone..."
                   value={customerSearchQuery}
                   onChange={(e) => {
-                    setCustomerSearchQuery(e.target.value);
+                    handleCustomerSearch(e.target.value);
                     setShowCustomerDropdown(true);
                   }}
                   onFocus={() => setShowCustomerDropdown(true)}
                 />
               </div>
-
               {showCustomerDropdown && (
                 <div className="customer-dropdown">
                   <div
@@ -266,40 +328,39 @@ export default function PosTerminal() {
                       setShowCustomerDropdown(false);
                     }}
                   >
-                    <strong>Walk-in / Unknown Buyer</strong>
+                    <strong>{t('walk_in_customer')}</strong>
                     <span className="muted">No customer assigned</span>
                   </div>
-                  {customers
-                    .filter((c) => {
-                      const q = customerSearchQuery.toLowerCase();
-                      return !q || c.name.toLowerCase().includes(q) || c.phone.includes(q);
-                    })
-                    .map((c) => (
-                      <div
-                        key={c._id}
-                        className="customer-dropdown-item"
-                        onClick={() => {
-                          setSelectedCustomer(c);
-                          setCustomerSearchQuery('');
-                          setShowCustomerDropdown(false);
-                        }}
-                      >
-                        <strong>{c.name}</strong>
-                        <span>{c.phone}</span>
-                      </div>
-                    ))}
+                  {customers.map((c) => (
+                    <div
+                      key={c._id}
+                      className="customer-dropdown-item"
+                      onClick={() => {
+                        setSelectedCustomer(c);
+                        setCustomerSearchQuery('');
+                        setShowCustomerDropdown(false);
+                      }}
+                    >
+                      <strong>{c.name}</strong>
+                      <span>{c.phone}</span>
+                    </div>
+                  ))}
+                  {customers.length === 0 && customerSearchQuery.trim().length > 0 && (
+                    <div className="customer-dropdown-no-results">No customers found</div>
+                  )}
                 </div>
               )}
             </div>
           )}
         </div>
 
+        {/* Cart Items */}
         <div className="cart-items-list">
           {cart.map((item) => (
             <div key={item.productId} className="cart-item">
               <div className="cart-item-info">
                 <span className="cart-item-name">{item.name}</span>
-                <span className="cart-item-price">${(item.price * item.quantity).toFixed(2)}</span>
+                <span className="cart-item-price">{formatPrice(item.price * item.quantity)}</span>
               </div>
               <div className="cart-item-actions">
                 <button onClick={() => updateQuantity(item.productId, -1)}><Minus size={14} /></button>
@@ -310,21 +371,22 @@ export default function PosTerminal() {
             </div>
           ))}
           {cart.length === 0 && (
-            <div className="empty-cart">Cart is empty. Click products to add.</div>
+            <div className="empty-cart">{t('cart_empty')}</div>
           )}
         </div>
 
+        {/* Cart Summary */}
         <div className="cart-summary">
           <div className="summary-row">
-            <span>Subtotal</span>
-            <span>${subtotal.toFixed(2)}</span>
+            <span>{t('subtotal')}</span>
+            <span>{formatPrice(subtotal)}</span>
           </div>
           <div className="summary-row">
-            <span>Tax ({taxRate}%)</span>
-            <span>${tax.toFixed(2)}</span>
+            <span>{t('tax')}</span>
+            <span>{formatPrice(tax)}</span>
           </div>
           <div className="summary-row">
-            <span>Discount ($)</span>
+            <span>{t('discount')} (₨)</span>
             <input
               type="number"
               min="0"
@@ -334,93 +396,115 @@ export default function PosTerminal() {
             />
           </div>
           <div className="summary-row total-row">
-            <span>Total</span>
-            <span>${total > 0 ? total.toFixed(2) : '0.00'}</span>
+            <span>{t('total_due')}</span>
+            <span>{formatPrice(total > 0 ? total : 0)}</span>
           </div>
+          {currency !== 'PKR' && (
+            <div className="summary-row" style={{ fontSize: '11px', color: '#6366f1' }}>
+              <span>PKR base:</span>
+              <span>₨ {(total > 0 ? total : 0).toFixed(2)}</span>
+            </div>
+          )}
         </div>
 
+        {/* Payment Method Selection */}
         <div className="payment-methods">
           <button
             className={paymentMethod === 'cash' ? 'pay-btn active' : 'pay-btn'}
             onClick={() => setPaymentMethod('cash')}
           >
-            <DollarSign size={16} /> Cash
+            <DollarSign size={16} /> {t('cash')}
           </button>
           <button
             className={paymentMethod === 'card' ? 'pay-btn active' : 'pay-btn'}
             onClick={() => setPaymentMethod('card')}
           >
-            <CreditCard size={16} /> Card
+            <CreditCard size={16} /> {t('card')}
           </button>
         </div>
 
+        {/* Card Details Form (simulated – no real processing) */}
+        {paymentMethod === 'card' && (
+          <div className="card-details-form">
+            <p className="card-sim-notice">⚠️ Simulation only — no real payment processing</p>
+            <div className="card-form-row">
+              <label>{t('card_type')}</label>
+              <select
+                value={cardDetails.cardType}
+                onChange={(e) => setCardDetails({ ...cardDetails, cardType: e.target.value })}
+                className="card-input"
+              >
+                <option value="Visa">Visa</option>
+                <option value="Mastercard">Mastercard</option>
+                <option value="Amex">Amex</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div className="card-form-row">
+              <label>{t('cardholder_name')}</label>
+              <input
+                type="text"
+                placeholder="e.g. John Doe"
+                value={cardDetails.cardholderName}
+                onChange={(e) => setCardDetails({ ...cardDetails, cardholderName: e.target.value })}
+                className="card-input"
+                maxLength={60}
+              />
+            </div>
+            <div className="card-form-row">
+              <label>{t('last4_digits')}</label>
+              <input
+                type="text"
+                placeholder="1234"
+                value={cardDetails.last4}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/\D/g, '').slice(0, 4);
+                  setCardDetails({ ...cardDetails, last4: v });
+                }}
+                className="card-input"
+                maxLength={4}
+                inputMode="numeric"
+              />
+            </div>
+            <div className="card-form-row">
+              <label>{t('auth_ref')}</label>
+              <input
+                type="text"
+                placeholder="e.g. TXN-2024-001"
+                value={cardDetails.transactionRef}
+                onChange={(e) => setCardDetails({ ...cardDetails, transactionRef: e.target.value })}
+                className="card-input"
+                maxLength={40}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Complete Sale Button */}
         <button
           className="checkout-btn"
           disabled={cart.length === 0 || loading}
           onClick={handleCheckout}
         >
-          {loading ? 'Processing...' : `Complete Sale ($${total > 0 ? total.toFixed(2) : '0.00'})`}
+          {loading
+            ? t('processing')
+            : `${t('pay_and_print')} (₨ ${total > 0 ? total.toFixed(2) : '0.00'})`}
         </button>
       </div>
 
       {/* Receipt Modal */}
       {completedSale && (
-        <div className="modal-backdrop">
-          <div className="receipt-modal">
-            <div className="receipt-success-icon">
-              <CheckCircle size={48} color="#10b981" />
-            </div>
-            <h2>Sale Successful!</h2>
-            <p className="invoice-num">Invoice: {completedSale.invoiceNumber}</p>
-
-            <div className="receipt-details">
-              <div className="receipt-row">
-                <span>Date:</span>
-                <span>{new Date(completedSale.createdAt).toLocaleString()}</span>
-              </div>
-              <div className="receipt-row">
-                <span>Payment:</span>
-                <span className="uppercase">{completedSale.paymentMethod}</span>
-              </div>
-              <div className="receipt-divider"></div>
-              {completedSale.items.map((i, idx) => (
-                <div key={idx} className="receipt-item-row">
-                  <span>{i.name} x {i.quantity}</span>
-                  <span>${(i.price * i.quantity).toFixed(2)}</span>
-                </div>
-              ))}
-              <div className="receipt-divider"></div>
-              <div className="receipt-row">
-                <span>Subtotal:</span>
-                <span>${completedSale.subtotal.toFixed(2)}</span>
-              </div>
-              <div className="receipt-row">
-                <span>Tax:</span>
-                <span>${completedSale.tax.toFixed(2)}</span>
-              </div>
-              <div className="receipt-row">
-                <span>Discount:</span>
-                <span>${completedSale.discount.toFixed(2)}</span>
-              </div>
-              <div className="receipt-row receipt-total">
-                <span>Total:</span>
-                <span>${completedSale.total.toFixed(2)}</span>
-              </div>
-            </div>
-
-            <div className="receipt-actions">
-              <button className="btn-secondary" onClick={() => window.print()}>
-                <Printer size={16} /> Print Receipt
-              </button>
-              <button className="btn-primary" onClick={() => setCompletedSale(null)}>
-                New Sale
-              </button>
-            </div>
-          </div>
-        </div>
+        <ReceiptModal
+          sale={completedSale}
+          title={t('sale_successful')}
+          isSuccess={true}
+          cashierName={user?.name}
+          closeButtonText={t('new_sale')}
+          onClose={() => setCompletedSale(null)}
+        />
       )}
 
-      {/* Add Buyer Details Modal in Checkout */}
+      {/* Add Buyer Details Modal */}
       {showNewCustomerModal && (
         <div className="modal-backdrop">
           <div className="modal">
@@ -430,7 +514,6 @@ export default function PosTerminal() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 setCustomerFormError('');
-
                 const rawPhone = String(newCustomerForm.phone || '').trim();
                 if (!rawPhone) { setCustomerFormError('Phone number is required'); return; }
                 if (/[a-zA-Z]/.test(rawPhone)) { setCustomerFormError('Phone number cannot contain letters'); return; }
@@ -442,184 +525,96 @@ export default function PosTerminal() {
                   setCustomerFormError('Please enter a valid Pakistani phone number (e.g., 03001234567)');
                   return;
                 }
-
-                if (newCustomerForm.step === 'phone') {
-                  // Step 1: Check if customer with this normalized phone already exists
-                  try {
-                    const res = await API.get(`/customers/lookup?phone=${encodeURIComponent(rawPhone)}`);
-                    if (res.data.found) {
-                      // Existing customer found! Do not overwrite, allow selecting
-                      setNewCustomerForm({
-                        ...newCustomerForm,
-                        step: 'found',
-                        existingCustomer: res.data.customer
-                      });
-                    } else {
-                      // Not found: proceed to collect name and optional email/consent
-                      setNewCustomerForm({
-                        ...newCustomerForm,
-                        step: 'create'
-                      });
-                    }
-                  } catch (err) {
-                    setCustomerFormError(err.response?.data?.message || 'Failed to lookup phone');
+                try {
+                  const lookupRes = await API.get(`/customers/lookup?phone=${encodeURIComponent(rawPhone)}`);
+                  if (lookupRes.data.found) {
+                    setSelectedCustomer(lookupRes.data.customer);
+                    setShowNewCustomerModal(false);
+                    setNewCustomerForm({ name: '', phone: '', email: '', marketingConsent: false });
+                    return;
                   }
-                } else if (newCustomerForm.step === 'create') {
-                  // Step 2: Validate name and create customer
                   const rawName = String(newCustomerForm.name || '').trim();
-                  if (!rawName) { setCustomerFormError('Customer name is required'); return; }
+                  if (!rawName) { setCustomerFormError('Customer name is required for new customers'); return; }
                   if (rawName.length < 2) { setCustomerFormError('Customer name must be at least 2 characters'); return; }
                   if (rawName.length > 60) { setCustomerFormError('Customer name cannot exceed 60 characters'); return; }
                   if (!/[a-zA-Z\u00C0-\u024F\u0600-\u06FF]/.test(rawName)) { setCustomerFormError('Customer name must contain at least one letter'); return; }
-
                   const email = String(newCustomerForm.email || '').trim();
                   if (email !== '') {
                     if (/\s/.test(email)) { setCustomerFormError('Email cannot contain spaces'); return; }
                     const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
                     if (!emailRegex.test(email)) { setCustomerFormError('Please enter a valid email address'); return; }
                   }
-
-                  try {
-                    const payload = {
-                      name: newCustomerForm.name,
-                      phone: newCustomerForm.phone,
-                      email: newCustomerForm.email || undefined,
-                      marketingConsent: newCustomerForm.marketingConsent
-                    };
-                    const res = await API.post('/customers', payload);
-                    const createdCustomer = res.data;
-                    setCustomers((prev) => [...prev, createdCustomer]);
-                    setSelectedCustomer(createdCustomer);
-                    setShowNewCustomerModal(false);
-                  } catch (err) {
-                    setCustomerFormError(err.response?.data?.message || 'Failed to create customer');
-                  }
+                  const payload = {
+                    name: newCustomerForm.name,
+                    phone: newCustomerForm.phone,
+                    email: newCustomerForm.email || undefined,
+                    marketingConsent: newCustomerForm.marketingConsent || false
+                  };
+                  const res = await API.post('/customers', payload);
+                  const createdCustomer = res.data;
+                  setCustomers((prev) => [...prev, createdCustomer]);
+                  setSelectedCustomer(createdCustomer);
+                  setShowNewCustomerModal(false);
+                  setNewCustomerForm({ name: '', phone: '', email: '', marketingConsent: false });
+                } catch (err) {
+                  const msg = err.response?.data?.message || 'Failed to process buyer details';
+                  setCustomerFormError(msg);
                 }
               }}
               className="modal-form"
             >
-              {newCustomerForm.step === 'phone' && (
-                <>
-                  <div className="form-group">
-                    <label>Enter Buyer Phone Number First</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 03001234567 or +923001234567"
-                      value={newCustomerForm.phone}
-                      onChange={(e) => setNewCustomerForm({ ...newCustomerForm, phone: e.target.value })}
-                      required
-                      autoFocus
-                    />
-                    <small style={{ color: '#64748b', fontSize: '12px', marginTop: '4px', display: 'block' }}>
-                      We will check if this customer already exists in the system.
-                    </small>
-                  </div>
-                  <div className="modal-actions">
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => setShowNewCustomerModal(false)}
-                    >
-                      Cancel
-                    </button>
-                    <button type="submit" className="btn-primary">
-                      Next / Lookup
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {newCustomerForm.step === 'found' && newCustomerForm.existingCustomer && (
-                <>
-                  <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '15px', marginBottom: '15px' }}>
-                    <h4 style={{ margin: '0 0 8px 0', color: '#0f172a' }}>Existing Customer Found!</h4>
-                    <p style={{ margin: '4px 0', fontSize: '14px' }}><strong>Name:</strong> {newCustomerForm.existingCustomer.name}</p>
-                    <p style={{ margin: '4px 0', fontSize: '14px' }}><strong>Phone:</strong> {newCustomerForm.existingCustomer.phone}</p>
-                    <p style={{ margin: '4px 0', fontSize: '14px' }}><strong>Email:</strong> {newCustomerForm.existingCustomer.email || 'N/A'}</p>
-                    <p style={{ margin: '4px 0', fontSize: '14px' }}><strong>SMS Opt-in:</strong> {newCustomerForm.existingCustomer.marketingConsent ? 'Yes' : 'No'}</p>
-                  </div>
-                  <div className="modal-actions">
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => setNewCustomerForm({ ...newCustomerForm, step: 'phone', existingCustomer: null })}
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => {
-                        setSelectedCustomer(newCustomerForm.existingCustomer);
-                        setShowNewCustomerModal(false);
-                      }}
-                    >
-                      Select Customer for Sale
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {newCustomerForm.step === 'create' && (
-                <>
-                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', marginBottom: '12px', fontSize: '13px', color: '#991b1b' }}>
-                    No existing customer found with phone <strong>{newCustomerForm.phone}</strong>. Please enter details to register.
-                  </div>
-                  <div className="form-group">
-                    <label>Customer Name</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. John Doe"
-                      value={newCustomerForm.name}
-                      onChange={(e) => setNewCustomerForm({ ...newCustomerForm, name: e.target.value })}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Phone Number</label>
-                    <input
-                      type="text"
-                      value={newCustomerForm.phone}
-                      disabled
-                      style={{ background: '#f1f5f9', cursor: 'not-allowed' }}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Email (Optional)</label>
-                    <input
-                      type="email"
-                      placeholder="e.g. customer@example.com"
-                      value={newCustomerForm.email}
-                      onChange={(e) => setNewCustomerForm({ ...newCustomerForm, email: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
-                    <input
-                      type="checkbox"
-                      id="checkoutMarketingConsent"
-                      checked={newCustomerForm.marketingConsent}
-                      onChange={(e) => setNewCustomerForm({ ...newCustomerForm, marketingConsent: e.target.checked })}
-                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                    />
-                    <label htmlFor="checkoutMarketingConsent" style={{ margin: 0, cursor: 'pointer', fontWeight: 500 }}>
-                      Opt-in for Marketing SMS
-                    </label>
-                  </div>
-                  <div className="modal-actions">
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => setNewCustomerForm({ ...newCustomerForm, step: 'phone' })}
-                    >
-                      Back
-                    </button>
-                    <button type="submit" className="btn-primary">
-                      Create & Select
-                    </button>
-                  </div>
-                </>
-              )}
+              <div className="form-group">
+                <label>Phone Number (Required first)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 03001234567 or +923001234567"
+                  value={newCustomerForm.phone}
+                  onChange={(e) => setNewCustomerForm({ ...newCustomerForm, phone: e.target.value })}
+                  required
+                  autoFocus
+                />
+                <small style={{ color: '#64748b', fontSize: '11px', marginTop: '2px', display: 'block' }}>
+                  If this phone number exists, the customer is reused automatically.
+                </small>
+              </div>
+              <div className="form-group">
+                <label>Customer Name (Required if new)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. John Doe"
+                  value={newCustomerForm.name}
+                  onChange={(e) => setNewCustomerForm({ ...newCustomerForm, name: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Email (Optional)</label>
+                <input
+                  type="email"
+                  placeholder="e.g. customer@example.com"
+                  value={newCustomerForm.email}
+                  onChange={(e) => setNewCustomerForm({ ...newCustomerForm, email: e.target.value })}
+                />
+              </div>
+              <div className="form-group checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                <input
+                  type="checkbox"
+                  id="directMarketingConsent"
+                  checked={newCustomerForm.marketingConsent || false}
+                  onChange={(e) => setNewCustomerForm({ ...newCustomerForm, marketingConsent: e.target.checked })}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
+                <label htmlFor="directMarketingConsent" style={{ margin: 0, cursor: 'pointer', fontWeight: 500 }}>
+                  Opt-in for Marketing SMS
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setShowNewCustomerModal(false)}>
+                  {t('cancel')}
+                </button>
+                <button type="submit" className="btn-primary">
+                  {t('save')} & Select
+                </button>
+              </div>
             </form>
           </div>
         </div>

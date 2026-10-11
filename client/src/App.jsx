@@ -39,11 +39,11 @@ export default function App() {
         onLogout={handleLogout}
       />
       <main className="main-content">
-        {activeTab === 'pos' && <PosTerminal />}
+        {activeTab === 'pos' && <PosTerminal user={user} />}
         {activeTab === 'products' && <ProductsManager user={user} />}
         {activeTab === 'categories' && <CategoriesManager user={user} />}
-        {activeTab === 'customers' && <CustomersManager />}
-        {activeTab === 'sales' && <SalesHistory />}
+        {activeTab === 'customers' && <CustomersManager user={user} />}
+        {activeTab === 'sales' && <SalesHistory user={user} />}
       </main>
     </div>
   );
