@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Product = require('../models/Product');
+const Sale = require('../models/Sale');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 // Normalize SKU consistently
@@ -45,13 +46,93 @@ const validateProduct = ({ name, sku, category, price, stockQuantity, lowStockTh
   return null;
 };
 
-// Get all products
+// Get ACTIVE products with optional search (name or SKU) and category filter
+// Use ?includeArchived=true to override (admin use)
 router.get('/', protect, async (req, res) => {
   try {
-    const products = await Product.find({}).populate('category', 'name');
+    const { search, category, activeOnly, includeArchived } = req.query;
+    let query = {};
+
+    // Default: only active products. activeOnly=true or omitting includeArchived=true both give same result.
+    if (includeArchived !== 'true') {
+      query.isArchived = { $ne: true };
+    }
+
+    // Legacy: activeOnly=true (kept for POS terminal compatibility)
+    if (activeOnly === 'true') {
+      query.isArchived = { $ne: true };
+    }
+
+    if (category && category !== 'all') {
+      query.category = category;
+    }
+
+    if (search && String(search).trim() !== '') {
+      const s = String(search).trim();
+      const escaped = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchRegex = new RegExp(escaped, 'i');
+      query.$or = [
+        { name: searchRegex },
+        { sku: searchRegex }
+      ];
+    }
+
+    const products = await Product.find(query).populate('category', 'name').sort({ name: 1 });
     res.json(products);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// Get ARCHIVED products (Admin only)
+router.get('/archived', protect, admin, async (req, res) => {
+  try {
+    const { search, category } = req.query;
+    let query = { isArchived: true };
+
+    if (category && category !== 'all') {
+      query.category = category;
+    }
+
+    if (search && String(search).trim() !== '') {
+      const s = String(search).trim();
+      const escaped = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchRegex = new RegExp(escaped, 'i');
+      query.$or = [
+        { name: searchRegex },
+        { sku: searchRegex }
+      ];
+    }
+
+    const products = await Product.find(query).populate('category', 'name').sort({ updatedAt: -1 });
+    res.json(products);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Restore an archived product (Admin only)
+router.patch('/:id/restore', protect, admin, async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    if (!product.isArchived) {
+      return res.status(400).json({ message: 'Product is not archived' });
+    }
+
+    product.isArchived = false;
+
+    // Strip " (Archived)" suffix if it was appended during archival
+    if (product.name.endsWith(' (Archived)')) {
+      product.name = product.name.slice(0, -' (Archived)'.length);
+    }
+
+    await product.save();
+    res.json({ message: 'Product restored successfully', product });
+  } catch (error) {
+    res.status(500).json({ message: 'Error restoring product: ' + error.message });
   }
 });
 
@@ -202,19 +283,92 @@ router.put('/:id', protect, admin, async (req, res) => {
   }
 });
 
-// Delete product (Admin only)
+// Bulk delete products (Admin only)
+// Preserves historical transactions by archiving products that have sales,
+// while permanently deleting products with no sales history.
+router.delete('/', protect, admin, async (req, res) => {
+  try {
+    const totalProducts = await Product.countDocuments();
+    if (totalProducts === 0) {
+      return res.json({
+        message: 'No products found to delete.',
+        deletedCount: 0,
+        archivedCount: 0,
+        totalProcessed: 0
+      });
+    }
+
+    // Find all product IDs referenced across all sales
+    const salesWithItems = await Sale.distinct('items.productId');
+    const referencedIds = salesWithItems.filter(id => id != null);
+
+    // 1. Permanently delete products with NO historical sales
+    const deleteResult = await Product.deleteMany({ _id: { $nin: referencedIds } });
+    const deletedCount = deleteResult.deletedCount || 0;
+
+    // 2. Safely archive products with historical sales
+    let archivedCount = 0;
+    if (referencedIds.length > 0) {
+      const productsToArchive = await Product.find({
+        _id: { $in: referencedIds },
+        isArchived: { $ne: true }
+      });
+
+      for (const prod of productsToArchive) {
+        if (!prod.name.includes('(Archived)')) {
+          prod.name = `${prod.name} (Archived)`;
+        }
+        prod.isArchived = true;
+        prod.stockQuantity = 0;
+        await prod.save();
+        archivedCount++;
+      }
+    }
+
+    res.json({
+      message: `Bulk product operation completed: ${deletedCount} product(s) deleted permanently; ${archivedCount} product(s) with historical sales safely archived.`,
+      deletedCount,
+      archivedCount,
+      totalProcessed: totalProducts
+    });
+  } catch (error) {
+    console.error('Bulk product delete error:', error);
+    res.status(500).json({ message: 'Error during bulk product deletion: ' + error.message });
+  }
+});
+
+// Delete or safely archive an individual product (Admin only)
 router.delete('/:id', protect, admin, async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
 
-    if (product) {
-      await product.deleteOne();
-      res.json({ message: 'Product removed' });
-    } else {
-      res.status(404).json({ message: 'Product not found' });
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
     }
+
+    // Check if referenced in historical sales
+    const salesCount = await Sale.countDocuments({ 'items.productId': req.params.id });
+
+    if (salesCount > 0) {
+      // Historical sales exist: Safe archive to preserve receipts and records
+      if (!product.name.includes('(Archived)')) {
+        product.name = `${product.name} (Archived)`;
+      }
+      product.isArchived = true;
+      product.stockQuantity = 0;
+      await product.save();
+
+      return res.json({
+        message: `Product is referenced in ${salesCount} historical sales. Safely archived to preserve transaction and receipt history.`,
+        archived: true
+      });
+    }
+
+    // No sales reference: Safe to permanently remove
+    await product.deleteOne();
+    res.json({ message: 'Product deleted successfully', deleted: true });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Error during product deletion: ' + error.message });
   }
 });
 

@@ -40,10 +40,11 @@ const productSchema = new Schema({
     required: [true, 'Low stock threshold is required'],
     min: [0, 'Low stock threshold cannot be negative'],
     default: 5
+  },
+  isArchived: {
+    type: Boolean,
+    default: false
   }
 }, { timestamps: true });
-
-// Ensure unique index on sku
-productSchema.index({ sku: 1 }, { unique: true });
 
 module.exports = mongoose.model('Product', productSchema);
