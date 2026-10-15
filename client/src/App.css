@@ -327,3 +327,41 @@
   color: var(--danger);
   border-color: var(--danger);
 }
+
+/* POS: barcode feedback + quick cash buttons */
+.scan-message {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.quick-cash {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.quick-cash-btn {
+  padding: 8px 14px;
+  min-height: 36px;
+  border: 1px solid var(--border-input);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.quick-cash-btn:hover:not(:disabled) {
+  background: var(--brand-light);
+  border-color: var(--brand);
+}
+
+.quick-cash-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

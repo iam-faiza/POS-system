@@ -31,6 +31,9 @@ export default function PosTerminal({ user }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const searchTimeoutRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const scanMessageTimeoutRef = useRef(null);
+  const [scanMessage, setScanMessage] = useState('');
 
   const fetchShift = async () => {
     try {
@@ -44,6 +47,7 @@ export default function PosTerminal({ user }) {
   useEffect(() => {
     fetchData();
     fetchShift();
+    searchInputRef.current?.focus();
 
     // Listen for real-time shift updates dispatched by Navbar / ShiftModal
     window.addEventListener('shiftUpdated', fetchShift);
@@ -51,6 +55,7 @@ export default function PosTerminal({ user }) {
     return () => {
       window.removeEventListener('shiftUpdated', fetchShift);
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (scanMessageTimeoutRef.current) clearTimeout(scanMessageTimeoutRef.current);
     };
   }, []);
 
@@ -203,6 +208,41 @@ export default function PosTerminal({ user }) {
     return matchesCat && matchesSearch;
   });
 
+  const showScanMessage = (message) => {
+    setScanMessage(message);
+    if (scanMessageTimeoutRef.current) clearTimeout(scanMessageTimeoutRef.current);
+    scanMessageTimeoutRef.current = setTimeout(() => setScanMessage(''), 2500);
+  };
+
+  // Barcode scanners type the code and press Enter, so Enter on the search box adds the item.
+  // An exact SKU match wins; otherwise a single remaining search result is added.
+  const handleSearchKeyDown = (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const code = searchQuery.trim().toLowerCase();
+    if (!code) return;
+
+    const exactMatch = products.find((p) => p.sku.toLowerCase() === code);
+    const match = exactMatch || (filteredProducts.length === 1 ? filteredProducts[0] : null);
+
+    if (match) {
+      addToCart(match);
+      setSearchQuery('');
+      setScanMessage('');
+    } else {
+      showScanMessage(t('sku_not_found'));
+    }
+    searchInputRef.current?.focus();
+  };
+
+  // Suggest the next round amounts above the total (e.g. 230 -> 300, 500, 1000).
+  const quickCashAmounts = total > 0
+    ? [...new Set([100, 500, 1000, 5000].map((step) => Math.ceil(total / step) * step))]
+        .filter((amount) => amount > total)
+        .sort((a, b) => a - b)
+        .slice(0, 3)
+    : [];
+
   return (
     <div className="pos-container">
       {/* Product Catalog Section */}
@@ -216,8 +256,11 @@ export default function PosTerminal({ user }) {
               placeholder={t('search_products')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              ref={searchInputRef}
             />
           </div>
+          {scanMessage && <p className="scan-message" role="status">{scanMessage}</p>}
         </div>
 
         <div className="category-tabs">
@@ -437,6 +480,26 @@ export default function PosTerminal({ user }) {
               onChange={(event) => setCashReceived(event.target.value)}
               className="card-input"
             />
+            <div className="quick-cash" role="group" aria-label={t('cash_received')}>
+              <button
+                type="button"
+                className="quick-cash-btn"
+                disabled={total <= 0}
+                onClick={() => setCashReceived(total.toFixed(2))}
+              >
+                {t('exact_amount')}
+              </button>
+              {quickCashAmounts.map((amount) => (
+                <button
+                  key={amount}
+                  type="button"
+                  className="quick-cash-btn"
+                  onClick={() => setCashReceived(String(amount))}
+                >
+                  {formatPrice(amount)}
+                </button>
+              ))}
+            </div>
             <div className="cash-change-preview">
               {t('change_due')}: {formatPrice(Math.max(0, (cashReceived === '' ? total : Number(cashReceived)) - total))}
             </div>
