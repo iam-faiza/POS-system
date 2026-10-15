@@ -35,6 +35,8 @@ function createProtect({ UserModel = User, RoleModel = Role, jwtLibrary = jwt, g
         roleName = user.roleRef.name;
       } else if (DEFAULT_ROLE_PERMISSIONS[user.role]) {
         permissions = DEFAULT_ROLE_PERMISSIONS[user.role];
+      } else {
+        return res.status(401).json({ message: 'Not authorized, account role invalid' });
       }
 
       req.user = { 

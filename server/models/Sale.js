@@ -33,4 +33,9 @@ const saleSchema = new Schema({
   }
 }, { timestamps: true });
 
+// Speeds up sales history, today's summary and per-cashier views as data grows.
+saleSchema.index({ createdAt: -1 });
+saleSchema.index({ cashier: 1, createdAt: -1 });
+saleSchema.index({ customer: 1 });
+
 module.exports = mongoose.model('Sale', saleSchema);

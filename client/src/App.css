@@ -38,6 +38,11 @@
   border-bottom: 1px solid var(--border-color);
 }
 
+.app-sidebar.collapsed .sidebar-brand {
+  justify-content: center;
+  padding: 0;
+}
+
 .brand-logo {
   display: flex;
   align-items: center;

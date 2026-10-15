@@ -21,8 +21,23 @@ export default function App() {
     const savedUser = localStorage.getItem('user');
     const token = localStorage.getItem('token');
     if (savedUser && token) {
-      setUser(JSON.parse(savedUser));
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      }
     }
+  }, []);
+
+  useEffect(() => {
+    const onAuthExpired = () => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setUser(null);
+    };
+    window.addEventListener('authExpired', onAuthExpired);
+    return () => window.removeEventListener('authExpired', onAuthExpired);
   }, []);
 
   const handleLogout = () => {

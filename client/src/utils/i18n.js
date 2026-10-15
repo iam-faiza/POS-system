@@ -29,6 +29,8 @@ export const TRANSLATIONS = {
     categories: 'Categories',
     customers: 'Customers',
     sales_history: 'Sales History',
+    roles: 'Roles',
+    employees: 'Employees',
     settings: 'Settings',
     logout: 'Logout',
 
@@ -253,6 +255,8 @@ export const TRANSLATIONS = {
     categories: 'زمرہ جات',
     customers: 'صارفین',
     sales_history: 'فروخت کی تاریخ',
+    roles: 'کردار',
+    employees: 'ملازمین',
     settings: 'ترتیبات',
     logout: 'لاگ آؤٹ',
 

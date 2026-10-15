@@ -55,4 +55,7 @@ const productSchema = new Schema({
   }
 }, { timestamps: true });
 
+productSchema.index({ isArchived: 1, category: 1 });
+productSchema.index({ name: 1 });
+
 module.exports = mongoose.model('Product', productSchema);

@@ -8,8 +8,11 @@ const { validateCustomer, validatePhone } = require('../utils/customerValidation
 const { customerProjectionForRole, customerResponseForRole } = require('../utils/customerResponse');
 
 function getArchivedOriginalPhone(phone, customerId) {
-  const currentPrefix = new RegExp(`^archived_\\d+_${String(customerId)}_${String(customerId)}`); // or matching existing implementation
+  // Archived phones are stored as `archived_<timestamp>_<customerId>_<phone>`.
+  // Older records used `archived_<timestamp>_<phone>`.
+  const currentPrefix = new RegExp(`^archived_\\d+_${String(customerId)}_`);
   const legacyPrefix = /^archived_\d+_/;
+  if (currentPrefix.test(phone)) return phone.replace(currentPrefix, '');
   return legacyPrefix.test(phone) ? phone.replace(legacyPrefix, '') : phone;
 }
 // Lookup customer by phone (normalized)

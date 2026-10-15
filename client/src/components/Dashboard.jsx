@@ -7,6 +7,7 @@ export default function Dashboard() {
   const { t, formatPrice } = useSettings();
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState('');
+  const showStockAlerts = Array.isArray(summary?.lowStockProducts);
 
   useEffect(() => {
     API.get('/sales/summary')
@@ -34,12 +35,15 @@ export default function Dashboard() {
               <h3>{t('revenue_today')}</h3>
               <strong>{formatPrice(summary.revenueToday)}</strong>
             </section>
-            <section className="dashboard-metric dashboard-low-stock">
-              <AlertTriangle aria-hidden="true" />
-              <h3>{t('low_stock_alerts')}</h3>
-              <strong>{summary.lowStockCount}</strong>
-            </section>
+            {showStockAlerts && (
+              <section className="dashboard-metric dashboard-low-stock">
+                <AlertTriangle aria-hidden="true" />
+                <h3>{t('low_stock_alerts')}</h3>
+                <strong>{summary.lowStockCount}</strong>
+              </section>
+            )}
           </div>
+          {showStockAlerts && (
           <section className="dashboard-low-stock-list" aria-labelledby="low-stock-title">
             <h3 id="low-stock-title">{t('low_stock_alerts')}</h3>
             {summary.lowStockProducts.length === 0 ? (
@@ -55,6 +59,7 @@ export default function Dashboard() {
               </ul>
             )}
           </section>
+          )}
         </>
       )}
     </section>

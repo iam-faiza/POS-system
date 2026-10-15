@@ -16,6 +16,12 @@ const employeeRoutes = require('./routes/employeeRoutes');
 const shiftRoutes = require('./routes/shiftRoutes');
 const app = express();
 
+// Set TRUST_PROXY=1 when deployed behind a reverse proxy so rate limiting sees real client IPs.
+if (process.env.TRUST_PROXY) {
+  const trust = process.env.TRUST_PROXY;
+  app.set('trust proxy', /^\d+$/.test(trust) ? Number(trust) : trust === 'true' ? true : trust);
+}
+
 const allowedOrigins = getAllowedOrigins();
 app.use(cors(corsOptionsForOrigins(allowedOrigins)));
 app.use(express.json());

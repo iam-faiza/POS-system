@@ -56,7 +56,7 @@ function createAuthRouter({
         token: jwtLibrary.sign(
           { id: user._id, role: roleName, permissions: permissions }, // <-- Permissions included here
           getSecret(),
-          { expiresIn: '30d', algorithm: 'HS256' }
+          { expiresIn: process.env.JWT_EXPIRES_IN || '30d', algorithm: 'HS256' }
         )
       });
     } catch (error) {

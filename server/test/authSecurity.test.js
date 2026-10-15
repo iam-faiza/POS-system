@@ -16,6 +16,7 @@ const {
 } = require('../security/securityConfig');
 const { customerProjectionForRole, customerResponseForRole } = require('../utils/customerResponse');
 const { salesQueryForUser } = require('../utils/salesAccess');
+const { DEFAULT_ROLE_PERMISSIONS } = require('../utils/permissions');
 const { canReadArchivedProducts, canReadLowStockThreshold } = require('../utils/productAccess');
 
 const jwtSecret = 'isolated-auth-test-secret-at-least-32-bytes';
@@ -50,7 +51,7 @@ function responseRecorder() {
 async function runProtect(token, currentUser) {
   const middleware = createProtect({
     UserModel: {
-      findById: () => ({ select: async () => currentUser })
+      findById: () => ({ populate() { return this; }, select: async () => currentUser })
     },
     getSecret: () => jwtSecret
   });
@@ -84,7 +85,11 @@ test('protect uses the current database role and rejects missing or invalid acco
   const staleAdminToken = jwt.sign({ id: userId, role: 'admin' }, jwtSecret, { expiresIn: '1h', algorithm: 'HS256' });
   const demoted = await runProtect(staleAdminToken, { _id: userId, role: 'cashier' });
   assert.equal(demoted.nextCalled, true);
-  assert.deepEqual(demoted.req.user, { id: userId, role: 'cashier' });
+  assert.deepEqual(demoted.req.user, {
+    id: userId,
+    role: 'cashier',
+    permissions: DEFAULT_ROLE_PERMISSIONS.cashier
+  });
 
   for (const account of [null, { _id: userId, role: 'owner' }]) {
     await t.test(account ? 'unknown role' : 'deleted account', async () => {
@@ -118,7 +123,9 @@ test('cashiers cannot request archived products while ordinary reads stay availa
 
 test('sales visibility returns all records for admins and only owned sales for cashiers', () => {
   assert.deepEqual(salesQueryForUser({ id: userId, role: 'admin' }), {});
-  assert.deepEqual(salesQueryForUser({ id: userId, role: 'cashier' }), { cashier: userId });
+  const cashierQuery = salesQueryForUser({ id: userId, role: 'cashier' });
+  assert.deepEqual(Object.keys(cashierQuery), ['cashier']);
+  assert.equal(String(cashierQuery.cashier), userId);
   assert.equal(salesQueryForUser({ role: 'cashier' }), null);
 });
 
@@ -154,7 +161,7 @@ test('sales history route scopes cashiers and keeps admin history unfiltered', a
   await withHttpServer(app, async (baseUrl) => {
     const cashierResponse = await fetch(`${baseUrl}/api/sales?preset=today&page=2&limit=50`);
     assert.equal(cashierResponse.status, 200);
-    assert.equal(queries[0].query.cashier, userId);
+    assert.equal(String(queries[0].query.cashier), userId);
     assert.ok(queries[0].query.createdAt.$gte instanceof Date);
     assert.ok(queries[0].query.createdAt.$lt instanceof Date);
     assert.match(queries[0].projection, /-customerSnapshot\.email/);
@@ -172,15 +179,20 @@ test('sales history route scopes cashiers and keeps admin history unfiltered', a
   });
 });
 
-test('Admin dashboard summary is protected and reports role-safe summary data', async () => {
+test('dashboard summary scopes sales to the cashier and shows stock alerts only to admins', async () => {
+  let stockQueries = 0;
   const SaleModel = {
     aggregate: async () => [{ saleCount: 3, revenue: 125.5 }]
   };
   const ProductModel = {
-    aggregate: async () => [{
-      count: [{ value: 1 }],
-      products: [{ _id: 'p1', name: 'Low item', stockQuantity: 1, lowStockThreshold: 2 }]
-    }]
+    aggregate: async (pipeline) => {
+      stockQueries += 1;
+      assert.deepEqual(pipeline[0].$match.isArchived, { $ne: true });
+      return [{
+        count: [{ value: 12 }],
+        products: [{ _id: 'p1', name: 'Low item', stockQuantity: 1, lowStockThreshold: 2 }]
+      }];
+    }
   };
   const app = express();
   let role = 'cashier';
@@ -193,8 +205,13 @@ test('Admin dashboard summary is protected and reports role-safe summary data', 
     }
   }));
   await withHttpServer(app, async (baseUrl) => {
-    const forbidden = await fetch(`${baseUrl}/api/sales/summary`);
-    assert.equal(forbidden.status, 403);
+    const cashierResponse = await fetch(`${baseUrl}/api/sales/summary`);
+    assert.equal(cashierResponse.status, 200);
+    const cashierSummary = await cashierResponse.json();
+    assert.equal(cashierSummary.salesToday, 3);
+    assert.equal(cashierSummary.lowStockCount, undefined);
+    assert.equal(cashierSummary.lowStockProducts, undefined);
+    assert.equal(stockQueries, 0);
 
     role = 'admin';
     const response = await fetch(`${baseUrl}/api/sales/summary`);
@@ -202,8 +219,13 @@ test('Admin dashboard summary is protected and reports role-safe summary data', 
     const summary = await response.json();
     assert.equal(summary.salesToday, 3);
     assert.equal(summary.revenueToday, 125.5);
-    assert.equal(summary.lowStockCount, 1);
+    assert.equal(summary.lowStockCount, 12);
     assert.equal(summary.lowStockProducts[0].name, 'Low item');
+    assert.equal(stockQueries, 1);
+
+    role = 'unknown-role';
+    const forbidden = await fetch(`${baseUrl}/api/sales/summary`);
+    assert.equal(forbidden.status, 403);
   });
 });
 
@@ -213,7 +235,7 @@ test('login rejects invalid credentials generically, signs bcrypt-authenticated 
   const app = express();
   app.use(express.json());
   app.use('/api/auth', createAuthRouter({
-    UserModel: { findOne: async ({ email }) => email === user.email ? user : null },
+    UserModel: { findOne: ({ email }) => ({ populate: async () => email === user.email ? user : null }) },
     getSecret: () => jwtSecret,
     loginRateLimiter: createLoginRateLimiter({ maxAttempts: 2, windowMs: 60000 })
   }));
@@ -247,7 +269,7 @@ test('login rejects invalid credentials generically, signs bcrypt-authenticated 
   const appWithFreshLimit = express();
   appWithFreshLimit.use(express.json());
   appWithFreshLimit.use('/api/auth', createAuthRouter({
-    UserModel: { findOne: async () => user },
+    UserModel: { findOne: () => ({ populate: async () => user }) },
     getSecret: () => jwtSecret,
     loginRateLimiter: createLoginRateLimiter({ maxAttempts: 2 })
   }));

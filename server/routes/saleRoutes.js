@@ -48,7 +48,11 @@ function createSaleRouter({
         Object.assign(query, dateFilter);
       }
 
-      const [salesResult, lowStockProducts] = await Promise.all([
+      const roleName = String(req.user.role || '').toLowerCase();
+      const canSeeStockAlerts = roleName === 'admin' ||
+        (req.user.permissions || []).includes(PERMISSIONS.ROLES_MANAGE);
+
+      const [salesResult, stockResult] = await Promise.all([
         SaleModel.aggregate([
           { $match: query },
           {
@@ -59,18 +63,37 @@ function createSaleRouter({
             }
           }
         ]),
-        ProductModel.find({ $expr: { $lte: ['$stockQuantity', '$lowStockThreshold'] } }).limit(10)
+        canSeeStockAlerts
+          ? ProductModel.aggregate([
+            {
+              $match: {
+                isArchived: { $ne: true },
+                $expr: { $lte: ['$stockQuantity', '$lowStockThreshold'] }
+              }
+            },
+            { $sort: { stockQuantity: 1, name: 1 } },
+            {
+              $facet: {
+                count: [{ $count: 'value' }],
+                products: [
+                  { $limit: 10 },
+                  { $project: { name: 1, sku: 1, stockQuantity: 1, lowStockThreshold: 1 } }
+                ]
+              }
+            }
+          ])
+          : Promise.resolve(null)
       ]);
 
       const salesToday = salesResult[0]?.saleCount || 0;
       const revenueToday = salesResult[0]?.revenue || 0;
 
-      res.json({
-        salesToday,
-        revenueToday,
-        lowStockCount: lowStockProducts.length,
-        lowStockProducts
-      });
+      const summary = { salesToday, revenueToday };
+      if (canSeeStockAlerts) {
+        summary.lowStockCount = stockResult?.[0]?.count?.[0]?.value || 0;
+        summary.lowStockProducts = stockResult?.[0]?.products || [];
+      }
+      res.json(summary);
     } catch (error) {
       res.status(500).json({ message: 'Unable to load summary' });
     }

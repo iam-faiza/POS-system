@@ -10,6 +10,7 @@ const { categoryNameError, normalizeCategoryKey, normalizeCategoryName } = requi
 const { parseStockInteger } = require('../utils/inventoryValidation');
 const { saveInventoryAdjustment } = require('../services/inventoryService');
 const { validateCustomer, validatePhone, formatCustomerName } = require('../utils/customerValidation');
+const { DEFAULT_ROLE_PERMISSIONS } = require('../utils/permissions');
 
 const categoryId = '507f1f77bcf86cd799439011';
 const secondCategoryId = '507f1f77bcf86cd799439012';
@@ -86,7 +87,7 @@ function createCategoryHarness({ role = 'admin', referenced = false, initial = [
     ProductModel,
     mongooseClient,
     protectMiddleware(req, res, next) {
-      req.user = { id: userId, role };
+      req.user = { id: userId, role, permissions: DEFAULT_ROLE_PERMISSIONS[role] || [] };
       next();
     }
   }));

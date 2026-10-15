@@ -9,4 +9,6 @@ const customerSchema = new Schema({
   isArchived: { type: Boolean, default: false }
 }, { timestamps: true });
 
+customerSchema.index({ isArchived: 1, name: 1 });
+
 module.exports = mongoose.model('Customer', customerSchema);
