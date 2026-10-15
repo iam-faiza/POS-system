@@ -3,9 +3,12 @@ import API from '../services/api';
 import { Users, Plus, Trash2, Search, CheckCircle, AlertCircle, Shield, Mail, Lock } from 'lucide-react';
 import AccessibleDialog from './AccessibleDialog';
 import { useSettings } from '../context/SettingsContext';
+import { useToast } from '../context/ToastContext';
+import { isAdminUser } from '../utils/roles';
 
 export default function EmployeesManager({ user }) {
   const { t } = useSettings();
+  const { showToast } = useToast();
   const [employees, setEmployees] = useState([]);
   const [roles, setRoles] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -15,7 +18,7 @@ export default function EmployeesManager({ user }) {
   const [feedback, setFeedback] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const canManageEmployees = user?.role === 'admin' || user?.permissions?.includes('employees.manage');
+  const canManageEmployees = isAdminUser(user) || user?.permissions?.includes('employees.manage');
 
   useEffect(() => {
     fetchEmployees();
@@ -71,8 +74,8 @@ export default function EmployeesManager({ user }) {
   };
 
   const handleDelete = async (emp) => {
-    if (emp._id === user?.id) {
-      alert('You cannot delete your own account.');
+    if (emp._id === (user?._id || user?.id)) {
+      showToast('You cannot delete your own account.', 'error');
       return;
     }
     if (!window.confirm(`Are you sure you want to remove employee "${emp.name}"?`)) return;

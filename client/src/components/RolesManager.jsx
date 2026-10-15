@@ -3,6 +3,8 @@ import API from '../services/api';
 import { Shield, Plus, Edit, Trash2, Search, CheckCircle, AlertCircle, Lock } from 'lucide-react';
 import AccessibleDialog from './AccessibleDialog';
 import { useSettings } from '../context/SettingsContext';
+import { useToast } from '../context/ToastContext';
+import { isAdminUser } from '../utils/roles';
 
 const PERMISSION_MODULES = [
   {
@@ -53,6 +55,7 @@ const PERMISSION_MODULES = [
 
 export default function RolesManager({ user }) {
   const { t } = useSettings();
+  const { showToast } = useToast();
   const [roles, setRoles] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -67,7 +70,7 @@ export default function RolesManager({ user }) {
   const [feedback, setFeedback] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const canManageRoles = user?.role === 'admin' || user?.permissions?.includes('roles.manage');
+  const canManageRoles = isAdminUser(user) || user?.permissions?.includes('roles.manage');
 
   useEffect(() => {
     fetchRoles();
@@ -168,7 +171,7 @@ export default function RolesManager({ user }) {
 
   const handleDelete = async (role) => {
     if (role.isSystemRole) {
-      alert('System roles cannot be deleted.');
+      showToast('System roles cannot be deleted.', 'error');
       return;
     }
     if (!window.confirm(`Are you sure you want to delete the role "${role.name}"?`)) return;

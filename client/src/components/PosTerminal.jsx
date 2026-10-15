@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import API from '../services/api';
-import { Search, Plus, Minus, Trash2, CreditCard, DollarSign } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, CreditCard, DollarSign, Pause } from 'lucide-react';
 import ReceiptModal from './ReceiptModal';
 import { useSettings } from '../context/SettingsContext';
+import { useToast } from '../context/ToastContext';
+import { isAdminUser } from '../utils/roles';
 import { localizeCustomerValidationError, normalizePakistaniPhone, validateCustomerDetails } from '../utils/customerValidation';
 import AccessibleDialog from './AccessibleDialog';
 
 export default function PosTerminal({ user }) {
   const { t, formatPrice } = useSettings();
+  const { showToast } = useToast();
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -34,6 +37,24 @@ export default function PosTerminal({ user }) {
   const searchInputRef = useRef(null);
   const scanMessageTimeoutRef = useRef(null);
   const [scanMessage, setScanMessage] = useState('');
+  const heldOrdersKey = `pos_held_orders_${user?._id || user?.id || 'anon'}`;
+  const [heldOrders, setHeldOrders] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(heldOrdersKey) || '[]');
+      return Array.isArray(saved) ? saved : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showHeldOrders, setShowHeldOrders] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(heldOrdersKey, JSON.stringify(heldOrders));
+    } catch {
+      // Storage can be full or blocked; held orders then only live for this session.
+    }
+  }, [heldOrders, heldOrdersKey]);
 
   const fetchShift = async () => {
     try {
@@ -94,50 +115,50 @@ export default function PosTerminal({ user }) {
 
   const addToCart = (product) => {
     if (product.stockQuantity <= 0) {
-      alert(t('out_of_stock'));
+      showToast(t('out_of_stock'), 'error');
+      return;
+    }
+    const existing = cart.find((item) => item.productId === product._id);
+    if (existing && existing.quantity >= product.stockQuantity) {
+      showToast(t('max_stock_reached'), 'error');
       return;
     }
     setCart((prevCart) => {
-      const existing = prevCart.find((item) => item.productId === product._id);
-      if (existing) {
-        if (existing.quantity >= product.stockQuantity) {
-          alert(t('max_stock_reached'));
-          return prevCart;
-        }
+      const inCart = prevCart.find((item) => item.productId === product._id);
+      if (inCart) {
+        if (inCart.quantity >= product.stockQuantity) return prevCart;
         return prevCart.map((item) =>
           item.productId === product._id
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
-      } else {
-        return [
-          ...prevCart,
-          {
-            productId: product._id,
-            name: product.name,
-            sku: product.sku,
-            price: product.price,
-            quantity: 1,
-            maxStock: product.stockQuantity
-          }
-        ];
       }
+      return [
+        ...prevCart,
+        {
+          productId: product._id,
+          name: product.name,
+          sku: product.sku,
+          price: product.price,
+          quantity: 1,
+          maxStock: product.stockQuantity
+        }
+      ];
     });
   };
 
   const updateQuantity = (productId, delta) => {
+    const target = cart.find((item) => item.productId === productId);
+    if (target && target.quantity + delta > target.maxStock) {
+      showToast(t('exceeds_stock'), 'error');
+      return;
+    }
     setCart((prevCart) =>
       prevCart
         .map((item) => {
-          if (item.productId === productId) {
-            const newQty = item.quantity + delta;
-            if (newQty > item.maxStock) {
-              alert(t('exceeds_stock'));
-              return item;
-            }
-            return { ...item, quantity: newQty };
-          }
-          return item;
+          if (item.productId !== productId) return item;
+          const newQty = item.quantity + delta;
+          return newQty > item.maxStock ? item : { ...item, quantity: newQty };
         })
         .filter((item) => item.quantity > 0)
     );
@@ -207,6 +228,63 @@ export default function PosTerminal({ user }) {
       p.sku.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCat && matchesSearch;
   });
+
+  const holdOrder = () => {
+    if (cart.length === 0) return;
+    const held = {
+      id: String(Date.now()),
+      heldAt: new Date().toISOString(),
+      cart,
+      customer: selectedCustomer,
+      discount: discountAmount
+    };
+    setHeldOrders((prev) => [held, ...prev].slice(0, 10));
+    setCart([]);
+    setDiscount(0);
+    setSelectedCustomer(null);
+    setCustomerSearchQuery('');
+    setCashReceived('');
+    setError('');
+    showToast(t('order_held'), 'success');
+  };
+
+  const resumeOrder = (id) => {
+    if (cart.length > 0) {
+      showToast(t('finish_current_order'), 'error');
+      return;
+    }
+    const held = heldOrders.find((order) => order.id === id);
+    if (!held) return;
+
+    // Stock and prices may have changed while the order was parked.
+    let adjusted = false;
+    const refreshed = [];
+    for (const item of held.cart) {
+      const product = products.find((p) => p._id === item.productId);
+      if (!product || product.stockQuantity <= 0) {
+        adjusted = true;
+        continue;
+      }
+      const quantity = Math.min(item.quantity, product.stockQuantity);
+      if (quantity !== item.quantity) adjusted = true;
+      refreshed.push({ ...item, price: product.price, maxStock: product.stockQuantity, quantity });
+    }
+
+    setHeldOrders((prev) => prev.filter((order) => order.id !== id));
+    setShowHeldOrders(false);
+    if (refreshed.length === 0) {
+      showToast(t('held_items_removed'), 'error');
+      return;
+    }
+    setCart(refreshed);
+    setSelectedCustomer(held.customer || null);
+    setDiscount(held.discount || 0);
+    showToast(adjusted ? t('held_items_removed') : t('order_resumed'), adjusted ? 'info' : 'success');
+  };
+
+  const discardHeldOrder = (id) => {
+    setHeldOrders((prev) => prev.filter((order) => order.id !== id));
+  };
 
   const showScanMessage = (message) => {
     setScanMessage(message);
@@ -294,7 +372,7 @@ export default function PosTerminal({ user }) {
               <div className="product-sku">SKU: {p.sku}</div>
               <div className="product-footer">
                 <span className="product-price">{formatPrice(p.price)}</span>
-                <span className={`stock-badge ${user?.role === 'admin' && p.stockQuantity <= p.lowStockThreshold ? 'low' : ''}`}>
+                <span className={`stock-badge ${isAdminUser(user) && p.stockQuantity <= p.lowStockThreshold ? 'low' : ''}`}>
                   {t('stock')}: {p.stockQuantity}
                 </span>
               </div>
@@ -310,8 +388,55 @@ export default function PosTerminal({ user }) {
       <div className="pos-cart-panel">
         <div className="cart-header">
           <h3>{t('cart')}</h3>
-          <span className="cart-count">{cart.reduce((s, i) => s + i.quantity, 0)} {t('items')}</span>
+          <div className="cart-header-meta">
+            <button
+              type="button"
+              className="hold-btn"
+              onClick={holdOrder}
+              disabled={cart.length === 0}
+            >
+              <Pause size={14} /> {t('hold_order')}
+            </button>
+            {heldOrders.length > 0 && (
+              <button
+                type="button"
+                className="hold-btn"
+                aria-expanded={showHeldOrders}
+                onClick={() => setShowHeldOrders((open) => !open)}
+              >
+                {t('held_orders')} ({heldOrders.length})
+              </button>
+            )}
+            <span className="cart-count">{cart.reduce((s, i) => s + i.quantity, 0)} {t('items')}</span>
+          </div>
         </div>
+
+        {showHeldOrders && heldOrders.length > 0 && (
+          <ul className="held-orders">
+            {heldOrders.map((order) => (
+              <li key={order.id} className="held-order">
+                <div className="held-order-info">
+                  <strong>
+                    {new Date(order.heldAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {order.customer?.name ? ` · ${order.customer.name}` : ''}
+                  </strong>
+                  <span>
+                    {order.cart.reduce((sum, item) => sum + item.quantity, 0)} {t('items')} ·{' '}
+                    {formatPrice(order.cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}
+                  </span>
+                </div>
+                <div className="held-order-actions">
+                  <button type="button" className="hold-btn" onClick={() => resumeOrder(order.id)}>
+                    {t('resume')}
+                  </button>
+                  <button type="button" className="hold-btn danger" onClick={() => discardHeldOrder(order.id)}>
+                    {t('discard')}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
 
         {error && <div className="error-alert">{error}</div>}
 

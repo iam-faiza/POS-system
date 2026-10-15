@@ -11,10 +11,11 @@ import {
   ChevronRight 
 } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
+import { isAdminUser } from '../utils/roles';
 
 export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, setIsCollapsed }) {
   const { t } = useSettings();
-  const isAdmin = String(user?.role || '').toLowerCase() === 'admin';
+  const isAdmin = isAdminUser(user);
 
   return (
     <aside className={`app-sidebar ${isCollapsed ? 'collapsed' : ''}`}>

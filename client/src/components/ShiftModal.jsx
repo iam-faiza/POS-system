@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { isAdminUser } from '../utils/roles';
 import API from '../services/api';
 import { FileText, Clock } from 'lucide-react';
 import ShiftHistoryModal from './ShiftHistoryModal';
@@ -153,7 +154,7 @@ export default function ShiftModal({ activeShift, onShiftUpdated, onClose, user 
         )}
 
         {/* Admin Audit Link */}
-        {user?.role === 'admin' && (
+        {isAdminUser(user) && (
           <button 
             type="button" 
             onClick={() => setShowHistoryModal(true)} 

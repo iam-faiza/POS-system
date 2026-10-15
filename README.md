@@ -22,6 +22,11 @@ A robust, full-stack Point of Sale (POS) and inventory management web applicatio
 - **Customer Loyalty & Lookup**:
   - Instant customer lookup by phone number with Pakistani phone format normalization (`03xx` and `923xx`).
   - Customer purchase history and total spend tracking.
+- **Cashier Speed Tools**:
+  - Barcode scanner support: the search box is focused automatically; scanning a SKU (or pressing Enter on a single match) adds the item.
+  - Quick cash buttons: "Exact" plus the next round amounts above the total.
+  - Hold and resume orders: park a cart while serving another customer; held orders survive a page refresh and are re-checked against current stock when resumed.
+  - Non-blocking toast notifications instead of browser alerts.
 - **Receipt Generation & Thermal Printing**:
   - Professional digital receipt modal with dedicated `@media print` CSS layout sized for 80mm thermal printers.
 - **Localization & Theme Customization**:
@@ -120,11 +125,19 @@ Create a `.env` file inside the `server/` directory. You can use `.env.example` 
 ### `server/.env` Example:
 ```env
 PORT=5000
-MONGO_URI=mongodb://127.0.0.1:27017/retail_pos
+MONGO_URI=mongodb://127.0.0.1:27017/retail_pos?replicaSet=rs0
 JWT_SECRET=your_super_secret_jwt_key_at_least_32_characters_long
 POS_TAX_RATE=5
 POS_MAX_DISCOUNT_PERCENT=100
+POS_TIME_ZONE=Asia/Karachi
+
+# Optional
+# JWT_EXPIRES_IN=12h        # default 30d
+# CORS_ALLOWED_ORIGINS=https://your-pos-domain.com   # required when NODE_ENV=production
+# TRUST_PROXY=1             # set when behind a reverse proxy / load balancer
 ```
+
+> **Important - MongoDB must be a replica set.** Checkout uses MongoDB transactions to keep stock, sales and customer totals consistent, and transactions only work on a replica set (a MongoDB Atlas cluster already is one). A plain standalone `mongod` makes checkout return `503`. To run a single-node replica set locally, add `replication: { replSetName: rs0 }` to `/etc/mongod.conf`, restart `mongod`, then run `mongosh --eval "rs.initiate()"` once.
 
 > **Note**: Never commit your `.env` file or expose your `JWT_SECRET` and `MONGO_URI`.
 
@@ -177,7 +190,7 @@ The Vite development server will run on `http://localhost:5173`.
 
 ## Authentication & Default Roles
 
-The system supports two user roles:
+The system uses permission-based roles (Admin, Manager, Cashier and Inventory Clerk are built in, and custom roles can be created from the Roles page). The seeded accounts are:
 1. **Admin**:
    - Email: `admin@example.com`
    - Password: `admin123`
@@ -204,6 +217,8 @@ Runs client-side utility and validation tests using Node's native test runner:
 cd client
 npm test
 ```
+
+Both suites also run automatically on every push through GitHub Actions (`.github/workflows/ci.yml`).
 
 ### Frontend Production Build
 Bundles the React application for production into `client/dist/`:
@@ -237,6 +252,8 @@ npm run build
 
 - **In-Memory Rate Limiter**: Login rate limiting resets on server restart; future scaling across multiple instances should use Redis.
 - **Offline Mode**: Currently requires an active connection to MongoDB.
+- **Product list loading**: The POS terminal loads all active products at once; server-side pagination is planned for large catalogs.
+- **Refunds / returns**: Not implemented yet.
 
 ---
 

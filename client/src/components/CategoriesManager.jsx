@@ -3,6 +3,7 @@ import API from '../services/api';
 import { Edit, Plus, Trash2 } from 'lucide-react';
 import AccessibleDialog from './AccessibleDialog';
 import { useSettings } from '../context/SettingsContext';
+import { isAdminUser } from '../utils/roles';
 
 export default function CategoriesManager({ user }) {
   const { t } = useSettings();
@@ -13,7 +14,7 @@ export default function CategoriesManager({ user }) {
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isAdminUser(user);
 
   useEffect(() => {
     fetchCategories();

@@ -2,10 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import API from '../services/api';
 import { Plus, Edit, Trash2, AlertTriangle, Search, Filter, AlertCircle, CheckCircle, RotateCcw, Archive, History } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
+import { useToast } from '../context/ToastContext';
+import { isAdminUser } from '../utils/roles';
 import AccessibleDialog from './AccessibleDialog';
 
 export default function ProductsManager({ user }) {
   const { formatPrice, t } = useSettings();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('active'); // 'active' | 'archived'
   const [products, setProducts] = useState([]);
   const [archivedProducts, setArchivedProducts] = useState([]);
@@ -34,7 +37,7 @@ export default function ProductsManager({ user }) {
   });
   const [error, setError] = useState('');
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isAdminUser(user);
 
   useEffect(() => {
     fetchInitialData();
@@ -234,7 +237,7 @@ export default function ProductsManager({ user }) {
 
   const handleBulkDelete = async () => {
     if (products.length === 0) {
-      alert(t('no_active_products_to_delete'));
+      showToast(t('no_active_products_to_delete'), 'error');
       return;
     }
     const confirmMsg = t('confirm_bulk_product_delete');

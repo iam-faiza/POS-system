@@ -4,9 +4,12 @@ import { Plus, Edit, Trash2, Search, AlertCircle, CheckCircle, RotateCcw, Archiv
 import { localizeCustomerValidationError, originalArchivedPhone, validateCustomerDetails } from '../utils/customerValidation';
 import AccessibleDialog from './AccessibleDialog';
 import { useSettings } from '../context/SettingsContext';
+import { useToast } from '../context/ToastContext';
+import { isAdminUser } from '../utils/roles';
 
 export default function CustomersManager({ user }) {
   const { t } = useSettings();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('active'); // 'active' | 'archived'
   const [customers, setCustomers] = useState([]);
   const [archivedCustomers, setArchivedCustomers] = useState([]);
@@ -21,7 +24,7 @@ export default function CustomersManager({ user }) {
   const searchTimeoutRef = useRef(null);
   const archivedSearchTimeoutRef = useRef(null);
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isAdminUser(user);
 
   useEffect(() => {
     fetchCustomers();
@@ -118,7 +121,7 @@ export default function CustomersManager({ user }) {
 
   const handleBulkDelete = async () => {
     if (customers.length === 0) {
-      alert(t('no_active_customers_to_delete'));
+      showToast(t('no_active_customers_to_delete'), 'error');
       return;
     }
     const confirmMsg = t('confirm_bulk_customer_delete');
