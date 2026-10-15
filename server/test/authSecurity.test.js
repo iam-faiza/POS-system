@@ -315,3 +315,31 @@ test('cashier customer fields stay sufficient for POS but omit email', () => {
   assert.equal(customerProjectionForRole('admin'), null);
   assert.equal(response.marketingConsent, undefined);
 });
+
+test('custom roleRef permissions and legacy fallbacks are correctly resolved and enforced', async () => {
+  const customRole = {
+    _id: '607f1f77bcf86cd7994390ff',
+    name: 'CustomStaff',
+    permissions: ['customers.create']
+  };
+
+  const token = jwt.sign({ id: userId, role: 'cashier' }, jwtSecret, { expiresIn: '1h', algorithm: 'HS256' });
+
+  const customResult = await runProtect(token, {
+    _id: userId,
+    role: 'cashier',
+    roleRef: customRole
+  });
+  assert.equal(customResult.nextCalled, true);
+  assert.deepEqual(customResult.req.user.permissions, ['customers.create']);
+  assert.equal(customResult.req.user.role, 'CustomStaff');
+
+  const legacyResult = await runProtect(token, {
+    _id: userId,
+    role: 'cashier',
+    roleRef: null
+  });
+  assert.equal(legacyResult.nextCalled, true);
+  assert.ok(legacyResult.req.user.permissions.includes('sales.create'));
+  assert.equal(legacyResult.req.user.role, 'cashier');
+});

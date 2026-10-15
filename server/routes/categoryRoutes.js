@@ -2,7 +2,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Category = require('../models/Category');
 const Product = require('../models/Product');
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, checkPermission } = require('../middleware/authMiddleware');
+const { PERMISSIONS } = require('../utils/permissions');
 const { categoryNameError, normalizeCategoryKey, normalizeCategoryName } = require('../utils/categoryValidation');
 
 function createCategoryRouter({
@@ -10,7 +11,8 @@ function createCategoryRouter({
   ProductModel = Product,
   mongooseClient = mongoose,
   protectMiddleware = protect,
-  adminMiddleware = admin
+  checkPermissionMiddleware = checkPermission
+  // adminMiddleware = admin
 } = {}) {
   const router = express.Router();
 
@@ -23,7 +25,7 @@ function createCategoryRouter({
     }
   });
 
-  router.post('/', protectMiddleware, adminMiddleware, async (req, res) => {
+  router.post('/', protectMiddleware, checkPermissionMiddleware(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) =>{
     const name = normalizeCategoryName(req.body?.name);
     const validationError = categoryNameError(name);
     if (validationError) return res.status(400).json({ message: validationError });
@@ -45,7 +47,7 @@ function createCategoryRouter({
     }
   });
 
-  router.put('/:id', protectMiddleware, adminMiddleware, async (req, res) => {
+  router.put('/:id', protectMiddleware, checkPermissionMiddleware(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) => {
     if (!mongoose.isObjectIdOrHexString(req.params.id)) {
       return res.status(400).json({ message: 'Category ID is invalid' });
     }
@@ -74,7 +76,7 @@ function createCategoryRouter({
     }
   });
 
-  router.delete('/:id', protectMiddleware, adminMiddleware, async (req, res) => {
+  router.delete('/:id', protectMiddleware, checkPermissionMiddleware(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) =>{
     if (!mongoose.isObjectIdOrHexString(req.params.id)) {
       return res.status(400).json({ message: 'Category ID is invalid' });
     }

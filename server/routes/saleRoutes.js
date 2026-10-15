@@ -2,7 +2,9 @@ const express = require('express');
 const router = express.Router();
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
-const { protect, admin } = require('../middleware/authMiddleware');
+const Shift = require('../models/Shift');
+const { protect, admin, checkPermission } = require('../middleware/authMiddleware');
+const { PERMISSIONS } = require('../utils/permissions');
 const { createSale, CheckoutError, getCheckoutSettings } = require('../services/checkoutService');
 const { salesQueryForUser } = require('../utils/salesAccess');
 const { buildSalesDateFilter, getStoreTimeZone, parseSalesPagination } = require('../utils/salesFilters');
@@ -10,8 +12,10 @@ const { buildSalesDateFilter, getStoreTimeZone, parseSalesPagination } = require
 function createSaleRouter({
   SaleModel = Sale,
   ProductModel = Product,
+  ShiftModel = Shift,
   protectMiddleware = protect,
   adminMiddleware = admin,
+  checkPermissionMiddleware = checkPermission,
   createSaleService = createSale,
   env = process.env
 } = {}) {
@@ -28,55 +32,70 @@ function createSaleRouter({
     }
   });
 
-  saleRouter.get('/summary', protectMiddleware, adminMiddleware, async (req, res) => {
+  saleRouter.get('/summary', protectMiddleware, async (req, res) => {
     try {
+      const ownerQuery = salesQueryForUser(req.user);
+      if (!ownerQuery) {
+        return res.status(403).json({ message: 'Not authorized to view dashboard summary' });
+      }
+
+      const query = { ...ownerQuery };
+
+      // Apply today's date filter using store timezone utility
       const timeZone = getStoreTimeZone(env);
-      const todayFilter = buildSalesDateFilter({ preset: 'today' }, timeZone);
-      const [salesSummary, inventorySummary] = await Promise.all([
+      const dateFilter = buildSalesDateFilter({ preset: 'today' }, timeZone);
+      if (dateFilter) {
+        Object.assign(query, dateFilter);
+      }
+
+      const [salesResult, lowStockProducts] = await Promise.all([
         SaleModel.aggregate([
-          { $match: todayFilter },
-          { $group: { _id: null, saleCount: { $sum: 1 }, revenue: { $sum: '$total' } } }
-        ]),
-        ProductModel.aggregate([
+          { $match: query },
           {
-            $match: {
-              isArchived: { $ne: true },
-              $expr: { $lte: ['$stockQuantity', '$lowStockThreshold'] }
-            }
-          },
-          {
-            $facet: {
-              count: [{ $count: 'value' }],
-              products: [
-                { $sort: { stockQuantity: 1 } },
-                { $limit: 10 },
-                { $project: { name: 1, sku: 1, stockQuantity: 1, lowStockThreshold: 1 } }
-              ]
+            $group: {
+              _id: null,
+              saleCount: { $sum: 1 },
+              revenue: { $sum: '$total' }
             }
           }
-        ])
+        ]),
+        ProductModel.find({ $expr: { $lte: ['$stockQuantity', '$lowStockThreshold'] } }).limit(10)
       ]);
-      const lowStockSummary = inventorySummary[0] || { count: [], products: [] };
+
+      const salesToday = salesResult[0]?.saleCount || 0;
+      const revenueToday = salesResult[0]?.revenue || 0;
+
       res.json({
-        date: todayFilter.createdAt.$gte,
-        timeZone,
-        salesToday: salesSummary[0]?.saleCount || 0,
-        revenueToday: salesSummary[0]?.revenue || 0,
-        lowStockCount: lowStockSummary.count[0]?.value || 0,
-        lowStockProducts: lowStockSummary.products
+        salesToday,
+        revenueToday,
+        lowStockCount: lowStockProducts.length,
+        lowStockProducts
       });
     } catch (error) {
-      res.status(500).json({ message: 'Unable to load dashboard summary' });
+      res.status(500).json({ message: 'Unable to load summary' });
     }
   });
 
-  // Process a sale
-  saleRouter.post('/', protectMiddleware, async (req, res) => {
+  // Process a sale (Shift check enforced)
+  saleRouter.post('/', protectMiddleware, checkPermission(PERMISSIONS.SALES_CREATE), async (req, res) => {
     try {
+      const cashierId = req.user.id || req.user._id;
+
+      // 1. Verify that cashier has an active OPEN register shift
+      const activeShift = await ShiftModel.findOne({ cashier: cashierId, status: 'OPEN' });
+      if (!activeShift) {
+        return res.status(400).json({
+          message: 'No active register shift found. You must open a register shift before processing sales.'
+        });
+      }
+
+      // 2. Pass shift ID to checkout service to associate transaction with Z-Report
       const sale = await createSaleService({
         body: req.body,
-        cashierId: req.user.id
+        cashierId,
+        shiftId: activeShift._id
       });
+
       res.status(201).json(sale);
     } catch (error) {
       const status = error instanceof CheckoutError ? error.status : 500;

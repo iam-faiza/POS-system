@@ -12,6 +12,7 @@ export default function PosTerminal({ user }) {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [activeShift, setActiveShift] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState([]);
@@ -31,9 +32,24 @@ export default function PosTerminal({ user }) {
   const [error, setError] = useState('');
   const searchTimeoutRef = useRef(null);
 
+  const fetchShift = async () => {
+    try {
+      const shiftRes = await API.get('/shifts/current');
+      setActiveShift(shiftRes.data?.activeShift || null);
+    } catch (err) {
+      setActiveShift(null);
+    }
+  };
+
   useEffect(() => {
     fetchData();
+    fetchShift();
+
+    // Listen for real-time shift updates dispatched by Navbar / ShiftModal
+    window.addEventListener('shiftUpdated', fetchShift);
+
     return () => {
+      window.removeEventListener('shiftUpdated', fetchShift);
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     };
   }, []);
@@ -132,6 +148,10 @@ export default function PosTerminal({ user }) {
   const total = Number((subtotal + tax - discountAmount).toFixed(2));
 
   const handleCheckout = async () => {
+    if (!activeShift) {
+      setError('Register shift is closed. Please open a shift from the top header before selling.');
+      return;
+    }
     if (cart.length === 0) return;
     setError('');
 
@@ -423,7 +443,6 @@ export default function PosTerminal({ user }) {
           </div>
         )}
 
-        {/* Simulated card flow; no card payment is processed. */}
         {paymentMethod === 'card' && (
           <div className="card-details-form">
             <p className="card-sim-notice">{t('card_simulation')}</p>
@@ -446,11 +465,14 @@ export default function PosTerminal({ user }) {
 
         {/* Complete Sale Button */}
         <button
+          type="button"
           className="checkout-btn"
-          disabled={cart.length === 0 || loading}
+          disabled={!activeShift || cart.length === 0 || loading}
           onClick={handleCheckout}
         >
-          {loading
+          {!activeShift
+            ? 'Open Shift Required to Sell'
+            : loading
             ? t('processing')
             : `${t('pay_and_print')} (${formatPrice(total > 0 ? total : 0)})`}
         </button>

@@ -2,20 +2,19 @@ const express = require('express');
 const router = express.Router();
 const Customer = require('../models/Customer');
 const Sale = require('../models/Sale');
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, checkPermission } = require('../middleware/authMiddleware');
+const { PERMISSIONS } = require('../utils/permissions');
 const { validateCustomer, validatePhone } = require('../utils/customerValidation');
 const { customerProjectionForRole, customerResponseForRole } = require('../utils/customerResponse');
 
 function getArchivedOriginalPhone(phone, customerId) {
-  const currentPrefix = new RegExp(`^archived_\\d+_${String(customerId)}_`);
-  if (currentPrefix.test(phone)) return phone.replace(currentPrefix, '');
+  const currentPrefix = new RegExp(`^archived_\\d+_${String(customerId)}_${String(customerId)}`); // or matching existing implementation
   const legacyPrefix = /^archived_\d+_/;
   return legacyPrefix.test(phone) ? phone.replace(legacyPrefix, '') : phone;
 }
-
 // Lookup customer by phone (normalized)
 // accessible by both Admin and Cashier
-router.get('/lookup', protect, async (req, res) => {
+router.get('/lookup', protect, checkPermission(PERMISSIONS.CUSTOMERS_VIEW), async (req, res) =>{
   try {
     const { phone } = req.query;
     if (!phone) {
@@ -51,7 +50,7 @@ router.get('/lookup', protect, async (req, res) => {
 });
 
 // Get all ACTIVE customers (with optional search across name, phone, email)
-router.get('/', protect, async (req, res) => {
+router.get('/', protect, checkPermission(PERMISSIONS.CUSTOMERS_VIEW), async (req, res) => {
   try {
     const { search } = req.query;
     // Only return non-archived customers
@@ -95,7 +94,7 @@ router.get('/', protect, async (req, res) => {
 });
 
 // Get all ARCHIVED customers (with optional search) - Admin only
-router.get('/archived', protect, admin, async (req, res) => {
+router.get('/archived', protect, checkPermission(PERMISSIONS.CUSTOMERS_MANAGE), async (req, res) => {
   try {
     const { search } = req.query;
     let query = { isArchived: true };
@@ -123,7 +122,7 @@ router.get('/archived', protect, admin, async (req, res) => {
 });
 
 // Create a new customer or reuse existing one (Duplicate Prevention)
-router.post('/', protect, async (req, res) => {
+router.post('/', protect, checkPermission(PERMISSIONS.CUSTOMERS_CREATE), async (req, res) =>{
   const validation = validateCustomer(req.body);
 
   if (validation.error) {
@@ -155,7 +154,7 @@ router.post('/', protect, async (req, res) => {
 });
 
 // Update an existing customer (Admin Only)
-router.put('/:id', protect, admin, async (req, res) => {
+router.put('/:id', protect, checkPermission(PERMISSIONS.CUSTOMERS_MANAGE), async (req, res) =>{
   const validation = validateCustomer(req.body);
 
   if (validation.error) {
@@ -195,7 +194,7 @@ router.put('/:id', protect, admin, async (req, res) => {
 // while permanently deleting customers with no sales history.
 
 // Restore an archived customer (Admin only)
-router.patch('/:id/restore', protect, admin, async (req, res) => {
+router.patch('/:id/restore', protect, checkPermission(PERMISSIONS.CUSTOMERS_MANAGE), async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.id);
     if (!customer) {
@@ -240,7 +239,7 @@ router.patch('/:id/restore', protect, admin, async (req, res) => {
   }
 });
 
-router.delete('/', protect, admin, async (req, res) => {
+router.delete('/', protect, checkPermission(PERMISSIONS.CUSTOMERS_MANAGE), async (req, res) => {
   try {
     const totalCustomers = await Customer.countDocuments();
     if (totalCustomers === 0) {
@@ -294,7 +293,7 @@ router.delete('/', protect, admin, async (req, res) => {
 });
 
 // Delete or safely archive an individual customer (Admin Only)
-router.delete('/:id', protect, admin, async (req, res) => {
+router.delete('/:id', protect, checkPermission(PERMISSIONS.CUSTOMERS_MANAGE), async (req, res) => {
   try {
     const customerId = req.params.id;
     const customer = await Customer.findById(customerId);

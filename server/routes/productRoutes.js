@@ -5,7 +5,8 @@ const Product = require('../models/Product');
 const Category = require('../models/Category');
 const Sale = require('../models/Sale');
 const StockMovement = require('../models/StockMovement');
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, checkPermission } = require('../middleware/authMiddleware');
+const { PERMISSIONS } = require('../utils/permissions');
 const { canReadArchivedProducts, canReadLowStockThreshold } = require('../utils/productAccess');
 const { stockValueError } = require('../utils/inventoryValidation');
 const { saveInventoryAdjustment } = require('../services/inventoryService');
@@ -50,11 +51,14 @@ const validateProduct = ({ name, sku, category, price, stockQuantity, lowStockTh
 
 // Get ACTIVE products with optional search (name or SKU) and category filter
 // Use ?includeArchived=true to override (admin use)
-router.get('/', protect, async (req, res) => {
+router.get('/', protect, checkPermission(PERMISSIONS.PRODUCTS_VIEW), async (req, res) => {
   try {
     const { search, category, activeOnly, includeArchived } = req.query;
     if (!canReadArchivedProducts(req.user.role, includeArchived)) {
-      return res.status(403).json({ message: 'Not authorized as an admin' });
+      // Re-evaluate: if they have PRODUCTS_MANAGE, they should probably see archived
+      if (!req.user.permissions.includes(PERMISSIONS.PRODUCTS_MANAGE)) {
+        return res.status(403).json({ message: 'Not authorized as an admin' });
+      }
     }
 
     let query = {};
@@ -93,7 +97,7 @@ router.get('/', protect, async (req, res) => {
 });
 
 // Get ARCHIVED products (Admin only)
-router.get('/archived', protect, admin, async (req, res) => {
+router.get('/archived', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) => {
   try {
     const { search, category } = req.query;
     let query = { isArchived: true };
@@ -120,7 +124,7 @@ router.get('/archived', protect, admin, async (req, res) => {
 });
 
 // Restore an archived product (Admin only)
-router.patch('/:id/restore', protect, admin, async (req, res) => {
+router.patch('/:id/restore', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) {
@@ -144,7 +148,7 @@ router.patch('/:id/restore', protect, admin, async (req, res) => {
   }
 });
 
-router.get('/:id/stock-movements', protect, admin, async (req, res) => {
+router.get('/:id/stock-movements', protect, checkPermission(PERMISSIONS.INVENTORY_VIEW), async (req, res) => {
   if (!mongoose.isObjectIdOrHexString(req.params.id)) {
     return res.status(400).json({ message: 'Product ID is invalid' });
   }
@@ -163,7 +167,7 @@ router.get('/:id/stock-movements', protect, admin, async (req, res) => {
 });
 
 // Create product (Admin only)
-router.post('/', protect, admin, async (req, res) => {
+router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) => {
   const {
     name,
     sku,
@@ -246,7 +250,7 @@ router.post('/', protect, admin, async (req, res) => {
 });
 
 // Update product (Admin only)
-router.put('/:id', protect, admin, async (req, res) => {
+router.put('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) =>{
   const { name, sku, category, price, stockQuantity, lowStockThreshold } = req.body;
   if (req.body.stockAdjustmentReason !== undefined &&
       (typeof req.body.stockAdjustmentReason !== 'string' || req.body.stockAdjustmentReason.trim().length > 160)) {
@@ -353,7 +357,7 @@ router.put('/:id', protect, admin, async (req, res) => {
 // Bulk delete products (Admin only)
 // Preserves historical transactions by archiving products that have sales,
 // while permanently deleting products with no sales history.
-router.delete('/', protect, admin, async (req, res) => {
+router.delete('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) => {
   try {
     const totalProducts = await Product.countDocuments();
     if (totalProducts === 0) {
@@ -404,7 +408,7 @@ router.delete('/', protect, admin, async (req, res) => {
 });
 
 // Delete or safely archive an individual product (Admin only)
-router.delete('/:id', protect, admin, async (req, res) => {
+router.delete('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) =>{
   try {
     const product = await Product.findById(req.params.id);
 

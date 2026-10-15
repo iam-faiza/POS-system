@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
+const { DEFAULT_ROLE_PERMISSIONS } = require('../utils/permissions');
 const { createLoginRateLimiter } = require('../security/loginRateLimit');
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('not-a-real-pos-account-password', 10);
 
@@ -26,19 +27,34 @@ function createAuthRouter({
     }
 
     try {
-      const user = await UserModel.findOne({ email });
+      const user = await UserModel.findOne({ email }).populate('roleRef');
       const passwordMatches = await bcryptLibrary.compare(password, user?.password || DUMMY_PASSWORD_HASH);
-      if (!user || !['admin', 'cashier'].includes(user.role) || !passwordMatches) {
+      
+      if (!user || !passwordMatches) {
         return res.status(401).json({ message: 'Invalid email or password' });
+      }
+
+      let permissions = [];
+      let roleName = user.role;
+
+      if (user.roleRef) {
+        permissions = user.roleRef.permissions || [];
+        roleName = user.roleRef.name;
+      } else if (DEFAULT_ROLE_PERMISSIONS[user.role]) {
+        permissions = DEFAULT_ROLE_PERMISSIONS[user.role];
+      } else {
+        // Fallback for users with no valid role
+        return res.status(401).json({ message: 'Account role invalid' });
       }
 
       return res.json({
         _id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role,
+        role: roleName,
+        permissions: permissions,
         token: jwtLibrary.sign(
-          { id: user._id, role: user.role },
+          { id: user._id, role: roleName, permissions: permissions }, // <-- Permissions included here
           getSecret(),
           { expiresIn: '30d', algorithm: 'HS256' }
         )

@@ -11,7 +11,7 @@ export default function Dashboard() {
   useEffect(() => {
     API.get('/sales/summary')
       .then((response) => setSummary(response.data))
-      .catch((requestError) => setError(requestError.response?.data?.message || 'failed_load_dashboard'));
+      .catch((requestError) => setError(requestError.response?.data?.message || 'Failed to load dashboard summary'));
   }, []);
 
   return (
@@ -19,7 +19,7 @@ export default function Dashboard() {
       <header className="manager-header">
         <h2 id="dashboard-title">{t('dashboard')}</h2>
       </header>
-      {error && <div className="error-alert" role="alert">{error === 'failed_load_dashboard' ? t(error) : error}</div>}
+      {error && <div className="error-alert" role="alert">{error}</div>}
       {!summary && !error && <p role="status">{t('loading')}</p>}
       {summary && (
         <>

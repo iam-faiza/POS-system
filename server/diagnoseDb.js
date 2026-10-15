@@ -10,21 +10,20 @@ async function checkDb() {
     await mongoose.connect(MONGO_URI);
     console.log('MongoDB Connected');
 
-    const customers = await Customer.find({}).lean();
-    console.log('Total customers in DB:', customers.length);
-    console.log('Customer samples:', JSON.stringify(customers.slice(0, 10), null, 2));
-
-    // Check indexes
-    const indexes = await Customer.collection.indexes();
-    console.log('Customer indexes:', JSON.stringify(indexes, null, 2));
-
-    // Check sales
-    const salesCount = await Sale.countDocuments();
-    console.log('Total sales in DB:', salesCount);
-
-    // Check users
+    // Check users to see their exact IDs and roles
     const users = await User.find({}, 'name email role').lean();
     console.log('Users in DB:', JSON.stringify(users, null, 2));
+
+    // Check all sales with their timestamps and cashier IDs
+    const sales = await Sale.find({}).lean();
+    console.log('Total sales in DB:', sales.length);
+    console.log('Sales details:', sales.map(s => ({
+      id: s._id,
+      invoice: s.invoiceNumber,
+      cashier: s.cashier,
+      total: s.total,
+      createdAt: s.createdAt
+    })));
 
     await mongoose.disconnect();
   } catch (err) {

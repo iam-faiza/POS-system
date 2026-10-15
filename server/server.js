@@ -10,8 +10,10 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const productRoutes = require('./routes/productRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const saleRoutes = require('./routes/saleRoutes');
+const roleRoutes = require('./routes/roleRoutes');
 const { corsOptionsForOrigins, getAllowedOrigins, validateJwtSecret } = require('./security/securityConfig');
-
+const employeeRoutes = require('./routes/employeeRoutes');
+const shiftRoutes = require('./routes/shiftRoutes');
 const app = express();
 
 const allowedOrigins = getAllowedOrigins();
@@ -23,6 +25,9 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/sales', saleRoutes);
+app.use('/api/roles', roleRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/shifts', shiftRoutes);
 
 const PORT = process.env.PORT || 5000;
 

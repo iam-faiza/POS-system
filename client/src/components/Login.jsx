@@ -3,6 +3,7 @@ import API from '../services/api';
 import { Lock, Mail, Store, Eye, EyeOff } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 
+
 export default function Login({ onLogin }) {
   const { t } = useSettings();
   const [email, setEmail] = useState('');

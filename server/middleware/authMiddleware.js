@@ -1,7 +1,9 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Role = require('../models/Role');
+const { DEFAULT_ROLE_PERMISSIONS } = require('../utils/permissions');
 
-function createProtect({ UserModel = User, jwtLibrary = jwt, getSecret = () => process.env.JWT_SECRET } = {}) {
+function createProtect({ UserModel = User, RoleModel = Role, jwtLibrary = jwt, getSecret = () => process.env.JWT_SECRET } = {}) {
   return async (req, res, next) => {
     const authorization = req.headers.authorization || '';
     const match = authorization.match(/^Bearer\s+(\S+)$/i);
@@ -20,14 +22,29 @@ function createProtect({ UserModel = User, jwtLibrary = jwt, getSecret = () => p
     }
 
     try {
-      const user = await UserModel.findById(decoded.id).select('_id role');
-      if (!user || !['admin', 'cashier'].includes(user.role)) {
+      const user = await UserModel.findById(decoded.id).populate('roleRef').select('_id role roleRef');
+      if (!user) {
         return res.status(401).json({ message: 'Not authorized, account unavailable' });
       }
 
-      req.user = { id: String(user._id), role: user.role };
+      let permissions = [];
+      let roleName = user.role;
+
+      if (user.roleRef) {
+        permissions = user.roleRef.permissions || [];
+        roleName = user.roleRef.name;
+      } else if (DEFAULT_ROLE_PERMISSIONS[user.role]) {
+        permissions = DEFAULT_ROLE_PERMISSIONS[user.role];
+      }
+
+      req.user = { 
+        id: String(user._id), 
+        role: roleName,
+        permissions: permissions
+      };
       return next();
     } catch (error) {
+      console.error('Auth error:', error);
       return res.status(503).json({ message: 'Authentication service unavailable' });
     }
   };
@@ -36,10 +53,19 @@ function createProtect({ UserModel = User, jwtLibrary = jwt, getSecret = () => p
 const protect = createProtect();
 
 const admin = (req, res, next) => {
-  if (req.user && req.user.role === 'admin') {
+  if (req.user && (req.user.role === 'admin' || (req.user.permissions && req.user.permissions.includes('roles.manage')))) {
     return next();
   }
   return res.status(403).json({ message: 'Not authorized as an admin' });
 };
 
-module.exports = { protect, admin, createProtect };
+const checkPermission = (permission) => {
+  return (req, res, next) => {
+    if (req.user && req.user.permissions && req.user.permissions.includes(permission)) {
+      return next();
+    }
+    return res.status(403).json({ message: `Access denied: missing permission ${permission}` });
+  };
+};
+
+module.exports = { protect, admin, checkPermission, createProtect };
