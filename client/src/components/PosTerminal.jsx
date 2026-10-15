@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import API from '../services/api';
-import { Search, Plus, Minus, Trash2, CreditCard, DollarSign, Pause } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, CreditCard, DollarSign, Pause, X } from 'lucide-react';
 import ReceiptModal from './ReceiptModal';
 import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
@@ -401,8 +401,9 @@ export default function PosTerminal({ user }) {
               <button
                 type="button"
                 className="hold-btn"
+                aria-haspopup="dialog"
                 aria-expanded={showHeldOrders}
-                onClick={() => setShowHeldOrders((open) => !open)}
+                onClick={() => setShowHeldOrders(true)}
               >
                 {t('held_orders')} ({heldOrders.length})
               </button>
@@ -412,30 +413,41 @@ export default function PosTerminal({ user }) {
         </div>
 
         {showHeldOrders && heldOrders.length > 0 && (
-          <ul className="held-orders">
-            {heldOrders.map((order) => (
-              <li key={order.id} className="held-order">
-                <div className="held-order-info">
-                  <strong>
-                    {new Date(order.heldAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    {order.customer?.name ? ` · ${order.customer.name}` : ''}
-                  </strong>
-                  <span>
-                    {order.cart.reduce((sum, item) => sum + item.quantity, 0)} {t('items')} ·{' '}
-                    {formatPrice(order.cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}
-                  </span>
-                </div>
-                <div className="held-order-actions">
-                  <button type="button" className="hold-btn" onClick={() => resumeOrder(order.id)}>
-                    {t('resume')}
-                  </button>
-                  <button type="button" className="hold-btn danger" onClick={() => discardHeldOrder(order.id)}>
-                    {t('discard')}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <AccessibleDialog className="modal modal-md" labelledBy="held-orders-title" onClose={() => setShowHeldOrders(false)}>
+            <div className="modal-top-header">
+              <div className="modal-title-group">
+                <div className="modal-header-icon"><Pause size={18} /></div>
+                <h3 id="held-orders-title">{t('held_orders')} ({heldOrders.length})</h3>
+              </div>
+              <button type="button" className="icon-btn modal-close-btn" aria-label={t('cancel')} onClick={() => setShowHeldOrders(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <ul className="held-orders">
+              {heldOrders.map((order) => (
+                <li key={order.id} className="held-order">
+                  <div className="held-order-info">
+                    <strong>
+                      {new Date(order.heldAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {order.customer?.name ? ` · ${order.customer.name}` : ''}
+                    </strong>
+                    <span>
+                      {order.cart.reduce((sum, item) => sum + item.quantity, 0)} {t('items')} ·{' '}
+                      {formatPrice(order.cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}
+                    </span>
+                  </div>
+                  <div className="held-order-actions">
+                    <button type="button" className="hold-btn" onClick={() => resumeOrder(order.id)}>
+                      {t('resume')}
+                    </button>
+                    <button type="button" className="hold-btn danger" onClick={() => discardHeldOrder(order.id)}>
+                      {t('discard')}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </AccessibleDialog>
         )}
 
         {error && <div className="error-alert">{error}</div>}
@@ -758,15 +770,14 @@ export default function PosTerminal({ user }) {
                   onChange={(e) => setNewCustomerForm({ ...newCustomerForm, email: e.target.value })}
                 />
               </div>
-              <div className="form-group checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+              <div className="checkbox-group">
                 <input
                   type="checkbox"
                   id="directMarketingConsent"
                   checked={newCustomerForm.marketingConsent || false}
                   onChange={(e) => setNewCustomerForm({ ...newCustomerForm, marketingConsent: e.target.checked })}
-                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                 />
-                <label htmlFor="directMarketingConsent" style={{ margin: 0, cursor: 'pointer', fontWeight: 500 }}>
+                <label htmlFor="directMarketingConsent">
                   {t('marketing_opt_in')}
                 </label>
               </div>

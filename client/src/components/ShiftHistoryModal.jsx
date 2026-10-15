@@ -32,7 +32,7 @@ export default function ShiftHistoryModal({ onClose }) {
           <button 
             type="button" 
             onClick={onClose} 
-            className="modal-close-btn" 
+            className="icon-btn modal-close-btn" 
             aria-label="Close Modal"
             title="Close"
           >
@@ -46,8 +46,7 @@ export default function ShiftHistoryModal({ onClose }) {
             <button 
               type="button" 
               onClick={() => setSelectedShift(null)} 
-              className="btn-link-sm" 
-              style={{ marginBottom: '14px', cursor: 'pointer' }}
+              className="btn-link-sm back-link"
             >
               ← Back to Shift List
             </button>
@@ -72,7 +71,7 @@ export default function ShiftHistoryModal({ onClose }) {
                 <span>{selectedShift.difference >= 0 ? `+${selectedShift.difference?.toFixed(2)}` : selectedShift.difference?.toFixed(2)} PKR</span>
               </div>
               {selectedShift.notes && (
-                <div style={{ marginTop: '10px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                <div className="z-notes">
                   <strong>Notes:</strong> {selectedShift.notes}
                 </div>
               )}
@@ -81,7 +80,7 @@ export default function ShiftHistoryModal({ onClose }) {
         ) : (
           /* Shift List Table View */
           <>
-            <div className="search-box" style={{ marginBottom: '16px' }}>
+            <div className="search-box search-box-block">
               <Search size={16} />
               <input
                 type="text"
@@ -91,11 +90,11 @@ export default function ShiftHistoryModal({ onClose }) {
               />
             </div>
 
-            <div className="table-responsive" style={{ maxHeight: '340px', overflowY: 'auto' }}>
+            <div className="table-responsive table-scroll-md">
               {loading ? (
-                <p style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading shift audit history...</p>
+                <p className="empty-state">Loading shift audit history...</p>
               ) : filteredShifts.length === 0 ? (
-                <p style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>No register shift reports found.</p>
+                <p className="empty-state">No register shift reports found.</p>
               ) : (
                 <table className="data-table">
                   <thead>
@@ -114,7 +113,7 @@ export default function ShiftHistoryModal({ onClose }) {
                         <td>
                           <strong>{shift.cashier?.name || 'Unknown'}</strong>
                           <br />
-                          <small style={{ color: 'var(--text-muted)' }}>{shift.cashier?.email}</small>
+                          <small className="muted">{shift.cashier?.email}</small>
                         </td>
                         <td>{shift.closedAt ? new Date(shift.closedAt).toLocaleDateString() : 'OPEN'}</td>
                         <td>PKR {shift.expectedCash?.toFixed(2)}</td>
@@ -128,8 +127,7 @@ export default function ShiftHistoryModal({ onClose }) {
                           <button
                             type="button"
                             onClick={() => setSelectedShift(shift)}
-                            className="btn-secondary"
-                            style={{ padding: '4px 10px', fontSize: '0.8rem', width: 'auto' }}
+                            className="btn-secondary" btn-sm
                           >
                             Inspect
                           </button>

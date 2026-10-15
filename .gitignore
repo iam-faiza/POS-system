@@ -16,3 +16,4 @@ client/dist/
 mongodb-data/
 dump/
 *.dump
+.ui_backup_*/

@@ -194,15 +194,14 @@ export default function RolesManager({ user }) {
     <div className="manager-container">
       <div className="manager-header">
         <h2>Role & Permission Management</h2>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <div className="search-box" style={{ background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-input)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="toolbar">
+          <div className="search-box">
             <Search size={18} color="var(--text-muted)" />
             <input
               type="text"
               placeholder="Search roles..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ border: 'none', outline: 'none', fontSize: '14px', width: '200px', background: 'transparent', color: 'var(--text-primary)' }}
             />
           </div>
           {canManageRoles && (
@@ -214,7 +213,7 @@ export default function RolesManager({ user }) {
       </div>
 
       {feedback && (
-        <div className={feedback.type === 'success' ? 'success-alert' : 'error-alert'} style={{ marginBottom: '16px', padding: '10px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className={feedback.type === 'success' ? 'success-alert' : 'error-alert'}>
           {feedback.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
           <span>{feedback.message}</span>
         </div>
@@ -235,19 +234,19 @@ export default function RolesManager({ user }) {
             {filteredRoles.map((role) => (
               <tr key={role._id}>
                 <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className="cell-inline">
                     <Shield size={16} color="var(--brand)" />
                     <strong>{role.name}</strong>
                   </div>
                 </td>
-                <td>{role.description || <span style={{ color: 'var(--text-muted)' }}>No description</span>}</td>
+                <td>{role.description || <span className="muted">No description</span>}</td>
                 <td>
                   <span className={`badge ${role.isSystemRole ? 'primary' : 'secondary'}`}>
                     {role.isSystemRole ? 'System Role' : 'Custom Role'}
                   </span>
                 </td>
                 <td>
-                  <span className="badge success" style={{ fontSize: '12px' }}>
+                  <span className="badge success">
                     {role.permissions?.length || 0} permissions
                   </span>
                 </td>
@@ -271,7 +270,7 @@ export default function RolesManager({ user }) {
                         <Trash2 size={16} />
                       </button>
                     ) : (
-                      <span title="System roles cannot be deleted" style={{ padding: '6px', display: 'inline-flex', opacity: 0.5 }}>
+                      <span title="System roles cannot be deleted" className="lock-hint">
                         <Lock size={16} />
                       </span>
                     )}
@@ -281,7 +280,7 @@ export default function RolesManager({ user }) {
             ))}
             {filteredRoles.length === 0 && (
               <tr>
-                <td colSpan={canManageRoles ? 5 : 4} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                <td colSpan={canManageRoles ? 5 : 4} className="empty-cell">
                   No roles found.
                 </td>
               </tr>
@@ -291,20 +290,19 @@ export default function RolesManager({ user }) {
       </div>
 
       {showModal && (
-        <AccessibleDialog className="modal" labelledBy="role-dialog-title" onClose={() => setShowModal(false)} style={{ maxWidth: '700px', width: '90%' }}>
+        <AccessibleDialog className="modal modal-lg" labelledBy="role-dialog-title" onClose={() => setShowModal(false)}>
           <h3 id="role-dialog-title">{editRole ? `Edit Role: ${editRole.name}` : 'Create Custom Role'}</h3>
           {error && <div className="error-alert">{error}</div>}
           <form onSubmit={handleSubmit} className="modal-form">
             
           {/* NEW: Role Template Preset Dropdown */}
             {!editRole && (
-              <div className="form-group" style={{ marginBottom: '16px' }}>
+              <div className="form-group">
                 <label htmlFor="role-preset">Role Template (Optional Quick-Fill)</label>
                 <select
                   id="role-preset"
                   value={selectedPreset}
                   onChange={handlePresetChange}
-                  style={{ width: '100%', padding: '8px', borderRadius: '8px', background: 'var(--bg-surface)', border: '1px solid var(--border-input)', color: 'var(--text-primary)' }}
                 >
                   <option value="">-- Custom Role / Blank --</option>
                   {presets.length === 0 ? (
@@ -331,7 +329,7 @@ export default function RolesManager({ user }) {
                 required
                 disabled={editRole?.isSystemRole}
               />
-              {editRole?.isSystemRole && <small style={{ color: 'var(--text-muted)' }}>System role names cannot be modified.</small>}
+              {editRole?.isSystemRole && <small className="muted">System role names cannot be modified.</small>}
             </div>
 
             <div className="form-group">
@@ -347,19 +345,18 @@ export default function RolesManager({ user }) {
 
             <div className="form-group">
               <label>Permissions by Module</label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', maxHeight: '320px', overflowY: 'auto', padding: '12px', background: 'var(--bg-surface)', borderRadius: '8px', border: '1px solid var(--border-input)' }}>
+              <div className="perm-grid">
                 {PERMISSION_MODULES.map((mod) => (
-                  <div key={mod.title} style={{ marginBottom: '10px' }}>
-                    <strong style={{ fontSize: '13px', color: 'var(--brand)', display: 'block', marginBottom: '6px', borderBottom: '1px solid var(--border-color)', paddingBottom: '2px' }}>
+                  <div key={mod.title} className="perm-group">
+                    <strong className="perm-group-title">
                       {mod.title}
                     </strong>
                     {mod.permissions.map((perm) => (
-                      <label key={perm.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '4px', cursor: 'pointer' }}>
+                      <label key={perm.key} className="perm-item">
                         <input
                           type="checkbox"
                           checked={formData.permissions.includes(perm.key)}
                           onChange={() => handlePermissionToggle(perm.key)}
-                          style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                         />
                         <span>{perm.label}</span>
                       </label>

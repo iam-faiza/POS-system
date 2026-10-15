@@ -262,10 +262,10 @@ export default function ProductsManager({ user }) {
     <div className="manager-container">
       <div className="manager-header">
         <h2>{t('products_and_inventory')}</h2>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="toolbar">
           {/* Search box */}
           {activeTab === 'active' ? (
-            <div className="search-box" style={{ background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-input)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="search-box">
               <Search size={18} color="var(--text-muted)" />
               <input
                 type="text"
@@ -273,11 +273,10 @@ export default function ProductsManager({ user }) {
                 placeholder={t('search_products_input')}
                 value={searchQuery}
                 onChange={handleSearch}
-                style={{ border: 'none', outline: 'none', fontSize: '14px', width: '200px', background: 'transparent', color: 'var(--text-primary)' }}
               />
             </div>
           ) : (
-            <div className="search-box" style={{ background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-input)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="search-box">
               <Search size={18} color="var(--text-muted)" />
               <input
                 type="text"
@@ -285,19 +284,17 @@ export default function ProductsManager({ user }) {
                 placeholder={t('search_archived_products')}
                 value={archivedSearchQuery}
                 onChange={handleArchivedSearch}
-                style={{ border: 'none', outline: 'none', fontSize: '14px', width: '200px', background: 'transparent', color: 'var(--text-primary)' }}
               />
             </div>
           )}
 
           {/* Category filter */}
           {activeTab === 'active' ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-surface)', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--border-input)' }}>
+            <div className="search-box select-box">
               <Filter size={16} color="var(--text-muted)" />
               <select
                 value={selectedCategory}
                 onChange={handleCategoryChange}
-                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer' }}
               >
                 <option value="all">{t('all_categories')}</option>
                 {categories.map((cat) => (
@@ -306,12 +303,11 @@ export default function ProductsManager({ user }) {
               </select>
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-surface)', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--border-input)' }}>
+            <div className="search-box select-box">
               <Filter size={16} color="var(--text-muted)" />
               <select
                 value={archivedCategory}
                 onChange={handleArchivedCategoryChange}
-                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer' }}
               >
                 <option value="all">{t('all_categories')}</option>
                 {categories.map((cat) => (
@@ -323,11 +319,9 @@ export default function ProductsManager({ user }) {
 
           {isAdmin && activeTab === 'active' && (
             <button
-              className="btn-danger"
-              onClick={handleBulkDelete}
+              className="btn-danger" onClick={handleBulkDelete}
               disabled={actionLoading}
               title={t('delete_all_products')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               <Trash2 size={16} /> {t('delete_all_products')}
             </button>
@@ -342,41 +336,16 @@ export default function ProductsManager({ user }) {
 
       {/* Tabs */}
       {isAdmin && (
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '0' }}>
+        <div className="tab-bar" role="tablist">
           <button
             onClick={() => setActiveTab('active')}
-            style={{
-              padding: '8px 18px',
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              color: activeTab === 'active' ? 'var(--brand)' : 'var(--text-muted)',
-              borderBottom: activeTab === 'active' ? '2px solid var(--brand)' : '2px solid transparent',
-              transition: 'color 0.2s',
-              marginBottom: '-1px'
-            }}
+            className={`tab-btn ${activeTab === 'active' ? 'active' : ''}`}
           >
             {t('active_products')} ({products.length})
           </button>
           <button
             onClick={() => { setActiveTab('archived'); fetchArchivedProducts(archivedSearchQuery, archivedCategory); }}
-            style={{
-              padding: '8px 18px',
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              color: activeTab === 'archived' ? 'var(--brand)' : 'var(--text-muted)',
-              borderBottom: activeTab === 'archived' ? '2px solid var(--brand)' : '2px solid transparent',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'color 0.2s',
-              marginBottom: '-1px'
-            }}
+            className={`tab-btn ${activeTab === 'archived' ? 'active' : ''}`}
           >
             <Archive size={14} /> {t('archived_products')} ({archivedProducts.length})
           </button>
@@ -386,14 +355,6 @@ export default function ProductsManager({ user }) {
       {feedback && (
         <div
           className={feedback.type === 'success' ? 'success-alert' : 'error-alert'}
-          style={{
-            marginBottom: '16px',
-            padding: '10px 14px',
-            borderRadius: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
         >
           {feedback.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
           <span>{feedback.message}</span>
@@ -425,7 +386,7 @@ export default function ProductsManager({ user }) {
                   <td>
                     <strong>{displayName}</strong>
                     {activeTab === 'archived' && (
-                      <span className="badge warning" style={{ marginLeft: '8px', fontSize: '11px' }}>
+                      <span className="badge warning badge-inline">
                         Archived
                       </span>
                     )}
@@ -493,8 +454,7 @@ export default function ProductsManager({ user }) {
             {displayedList.length === 0 && (
               <tr>
                 <td
-                  colSpan={isAdmin ? 6 : 5}
-                  style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}
+                  colSpan={isAdmin ? 6 : 5} className="empty-cell"
                 >
                   {activeTab === 'active'
                     ? (searchQuery || selectedCategory !== 'all'

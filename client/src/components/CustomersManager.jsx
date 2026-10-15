@@ -172,9 +172,9 @@ export default function CustomersManager({ user }) {
     <div className="manager-container">
       <div className="manager-header">
         <h2>{t('customers')}</h2>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="toolbar">
           {activeTab === 'active' ? (
-            <div className="search-box" style={{ background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-input)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="search-box">
               <Search size={18} color="var(--text-muted)" />
               <input
                 type="text"
@@ -182,11 +182,10 @@ export default function CustomersManager({ user }) {
                 placeholder={t('filter_customers')}
                 value={searchQuery}
                 onChange={handleSearch}
-                style={{ border: 'none', outline: 'none', fontSize: '14px', width: '220px', background: 'transparent', color: 'var(--text-primary)' }}
               />
             </div>
           ) : (
-            <div className="search-box" style={{ background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-input)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="search-box">
               <Search size={18} color="var(--text-muted)" />
               <input
                 type="text"
@@ -194,17 +193,14 @@ export default function CustomersManager({ user }) {
                 placeholder={t('search_archived_customers')}
                 value={archivedSearchQuery}
                 onChange={handleArchivedSearch}
-                style={{ border: 'none', outline: 'none', fontSize: '14px', width: '220px', background: 'transparent', color: 'var(--text-primary)' }}
               />
             </div>
           )}
           {isAdmin && activeTab === 'active' && (
             <button
-              className="btn-danger"
-              onClick={handleBulkDelete}
+              className="btn-danger" onClick={handleBulkDelete}
               disabled={actionLoading}
               title={t('delete_all_customers')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               <Trash2 size={16} /> {t('delete_all_customers')}
             </button>
@@ -219,41 +215,16 @@ export default function CustomersManager({ user }) {
 
       {/* Tabs */}
       {isAdmin && (
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '0' }}>
+        <div className="tab-bar" role="tablist">
           <button
             onClick={() => setActiveTab('active')}
-            style={{
-              padding: '8px 18px',
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              color: activeTab === 'active' ? 'var(--brand)' : 'var(--text-muted)',
-              borderBottom: activeTab === 'active' ? '2px solid var(--brand)' : '2px solid transparent',
-              transition: 'color 0.2s',
-              marginBottom: '-1px'
-            }}
+            className={`tab-btn ${activeTab === 'active' ? 'active' : ''}`}
           >
             {t('active_customers')} ({customers.length})
           </button>
           <button
             onClick={() => { setActiveTab('archived'); fetchArchivedCustomers(archivedSearchQuery); }}
-            style={{
-              padding: '8px 18px',
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              color: activeTab === 'archived' ? 'var(--brand)' : 'var(--text-muted)',
-              borderBottom: activeTab === 'archived' ? '2px solid var(--brand)' : '2px solid transparent',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'color 0.2s',
-              marginBottom: '-1px'
-            }}
+            className={`tab-btn ${activeTab === 'archived' ? 'active' : ''}`}
           >
             <Archive size={14} /> {t('archived_customers')} ({archivedCustomers.length})
           </button>
@@ -263,14 +234,6 @@ export default function CustomersManager({ user }) {
       {feedback && (
         <div
           className={feedback.type === 'success' ? 'success-alert' : 'error-alert'}
-          style={{
-            marginBottom: '16px',
-            padding: '10px 14px',
-            borderRadius: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
         >
           {feedback.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
           <span>{feedback.message}</span>
@@ -295,7 +258,7 @@ export default function CustomersManager({ user }) {
                 <td>
                   <strong>{c.name}</strong>
                   {activeTab === 'archived' && (
-                    <span className="badge warning" style={{ marginLeft: '8px', fontSize: '11px' }}>
+                    <span className="badge warning badge-inline">
                       Archived
                     </span>
                   )}
@@ -344,8 +307,7 @@ export default function CustomersManager({ user }) {
             {displayedList.length === 0 && (
               <tr>
                 <td
-                  colSpan={isAdmin ? 6 : 5}
-                  style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}
+                  colSpan={isAdmin ? 6 : 5} className="empty-cell"
                 >
                   {activeTab === 'active'
                     ? (searchQuery ? `${t('no_customers')} (${searchQuery})` : t('no_active_customers'))
@@ -394,15 +356,14 @@ export default function CustomersManager({ user }) {
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 />
               </div>
-              <div className="form-group checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+              <div className="checkbox-group">
                 <input
                   type="checkbox"
                   id="marketingConsent"
                   checked={formData.marketingConsent}
                   onChange={(e) => setFormData({ ...formData, marketingConsent: e.target.checked })}
-                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                 />
-                <label htmlFor="marketingConsent" style={{ margin: 0, cursor: 'pointer', fontWeight: 500 }}>
+                <label htmlFor="marketingConsent">
                   {t('marketing_opt_in')}
                 </label>
               </div>

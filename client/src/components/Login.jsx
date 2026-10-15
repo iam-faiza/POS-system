@@ -33,7 +33,7 @@ export default function Login({ onLogin }) {
       <div className="login-card">
         <div className="login-header">
           <div className="login-icon-wrap">
-            <Store size={36} color="#12135bc7" />
+            <Store size={32} aria-hidden="true" />
           </div>
           <h1>{t('login_title')}</h1>
           <p>{t('login_subtitle')}</p>

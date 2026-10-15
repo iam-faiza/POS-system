@@ -147,7 +147,7 @@ export default function ShiftModal({ activeShift, onShiftUpdated, onClose, user 
               </div>
             </div>
 
-            <button onClick={onClose} className="btn-primary" style={{ width: '100%', marginTop: '16px' }}>
+            <button onClick={onClose} className="btn-primary" btn-block>
               Done
             </button>
           </div>
@@ -159,9 +159,8 @@ export default function ShiftModal({ activeShift, onShiftUpdated, onClose, user 
             type="button" 
             onClick={() => setShowHistoryModal(true)} 
             className="btn-link-sm"
-            style={{ marginTop: '16px', display: 'block', width: '100%', textAlign: 'center', cursor: 'pointer' }}
           >
-            📋 View Past Z-Reports & Cashier Audits
+            <FileText size={15} /> View Past Z-Reports & Cashier Audits
           </button>
         )}
       </div>

@@ -35,11 +35,8 @@ export default function Navbar({ user, onLogout, isSidebarCollapsed }) {
       <header className="top-header">
         <div className="header-left">
           {isSidebarCollapsed && (
-            <div 
-              className="collapsed-brand" 
-              style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: '700', fontSize: '1.15rem', color: 'var(--text-primary)' }}
-            >
-              <ShoppingCart size={22} style={{ color: 'var(--brand)' }} />
+            <div className="collapsed-brand">
+              <ShoppingCart size={22} />
               <span>RetailPOS</span>
             </div>
           )}
@@ -104,7 +101,7 @@ export default function Navbar({ user, onLogout, isSidebarCollapsed }) {
             <div className="user-info">
               <User size={16} />
               <span>{user?.name}</span>
-              <span className={`role-badge ${user?.role}`}>{user?.role}</span>
+              <span className={`role-badge ${String(user?.role || '').toLowerCase()}`}>{user?.role}</span>
             </div>
             <button onClick={onLogout} className="logout-btn" title={t('logout')} aria-label={t('logout')}>
               <LogOut size={18} />

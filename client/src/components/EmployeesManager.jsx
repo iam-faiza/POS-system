@@ -98,15 +98,14 @@ export default function EmployeesManager({ user }) {
     <div className="manager-container">
       <div className="manager-header">
         <h2>Employee Management</h2>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <div className="search-box" style={{ background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-input)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="toolbar">
+          <div className="search-box">
             <Search size={18} color="var(--text-muted)" />
             <input
               type="text"
               placeholder="Search employees..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ border: 'none', outline: 'none', fontSize: '14px', width: '200px', background: 'transparent', color: 'var(--text-primary)' }}
             />
           </div>
           {canManageEmployees && (
@@ -118,7 +117,7 @@ export default function EmployeesManager({ user }) {
       </div>
 
       {feedback && (
-        <div className={feedback.type === 'success' ? 'success-alert' : 'error-alert'} style={{ marginBottom: '16px', padding: '10px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className={feedback.type === 'success' ? 'success-alert' : 'error-alert'}>
           {feedback.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
           <span>{feedback.message}</span>
         </div>
@@ -139,14 +138,14 @@ export default function EmployeesManager({ user }) {
             {filteredEmployees.map((emp) => (
               <tr key={emp._id}>
                 <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className="cell-inline">
                     <Users size={16} color="var(--brand)" />
                     <strong>{emp.name}</strong>
                   </div>
                 </td>
                 <td>{emp.email}</td>
                 <td>
-                  <span className="badge primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <span className="badge primary">
                     <Shield size={12} />
                     {emp.roleRef?.name || emp.role}
                   </span>
@@ -164,7 +163,7 @@ export default function EmployeesManager({ user }) {
                         <Trash2 size={16} />
                       </button>
                     ) : (
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Current User</span>
+                      <span className="muted text-xs">Current User</span>
                     )}
                   </td>
                 )}
@@ -172,7 +171,7 @@ export default function EmployeesManager({ user }) {
             ))}
             {filteredEmployees.length === 0 && (
               <tr>
-                <td colSpan={canManageEmployees ? 5 : 4} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                <td colSpan={canManageEmployees ? 5 : 4} className="empty-cell">
                   No employees found.
                 </td>
               </tr>
@@ -182,7 +181,7 @@ export default function EmployeesManager({ user }) {
       </div>
 
       {showModal && (
-        <AccessibleDialog className="modal" labelledBy="employee-dialog-title" onClose={() => setShowModal(false)} style={{ maxWidth: '500px', width: '90%' }}>
+        <AccessibleDialog className="modal modal-md" labelledBy="employee-dialog-title" onClose={() => setShowModal(false)}>
           <h3 id="employee-dialog-title">Register New Employee</h3>
           {error && <div className="error-alert">{error}</div>}
           <form onSubmit={handleSubmit} className="modal-form">
@@ -229,7 +228,6 @@ export default function EmployeesManager({ user }) {
                 id="emp-role"
                 value={formData.roleRef}
                 onChange={(e) => setFormData({ ...formData, roleRef: e.target.value })}
-                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-input)', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
                 required
               >
                 {roles.map((role) => (
