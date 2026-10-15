@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut, User, Sun, Moon, Globe, DollarSign, Clock, ShoppingCart } from 'lucide-react';
+import { LogOut, User, Sun, Moon, Globe, DollarSign, Clock, ShoppingCart, Lock } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { canConvertCurrency } from '../utils/i18n';
 import API from '../services/api';
 import ShiftModal from './ShiftModal';
 
-export default function Navbar({ user, onLogout, isSidebarCollapsed }) {
+export default function Navbar({ user, onLogout, onLock, isSidebarCollapsed }) {
   const { theme, toggleTheme, language, setLanguage, currency, setCurrency, availableCurrencies, t } = useSettings();
   const [activeShift, setActiveShift] = useState(null);
   const [showShiftModal, setShowShiftModal] = useState(false);
@@ -26,7 +26,6 @@ export default function Navbar({ user, onLogout, isSidebarCollapsed }) {
 
   const handleShiftUpdate = (updatedShift) => {
     setActiveShift(updatedShift);
-    // Broadcast event across the application
     window.dispatchEvent(new Event('shiftUpdated'));
   };
 
@@ -94,6 +93,17 @@ export default function Navbar({ user, onLogout, isSidebarCollapsed }) {
           >
             <Clock size={16} />
             <span>{activeShift ? 'Shift Active' : 'Open Shift'}</span>
+          </button>
+
+          {/* Terminal Lock Button */}
+          <button
+            type="button"
+            onClick={onLock}
+            className="theme-toggle-btn"
+            title="Lock Register Screen"
+            aria-label="Lock Register Screen"
+          >
+            <Lock size={18} />
           </button>
 
           {/* User Info */}

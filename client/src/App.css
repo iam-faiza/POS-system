@@ -466,7 +466,6 @@
   margin-top: 14px;
 }
 
-/* ---------- Quick cash (also used inside POS) ---------- */
 .quick-cash-note {
   color: var(--text-muted);
 }
@@ -553,7 +552,6 @@
 }
 
 @media (max-width: 760px) {
-  /* Let the page grow with its content on phones instead of clipping to the viewport */
   .app-layout,
   .app-main {
     height: auto;
@@ -607,7 +605,7 @@
 }
 
 /* ==========================================================================
-   Component helpers (used by screens; kept here so they load after base)
+   Component helpers
    ========================================================================== */
 .back-link {
   align-self: flex-start;
@@ -715,7 +713,6 @@
 .skeleton-line.w-40 { width: 40%; }
 .skeleton-line.w-30 { width: 30%; }
 
-/* Receipt dialog pieces that have no other rule */
 .receipt-store-icon {
   color: var(--brand);
 }
@@ -729,7 +726,6 @@
   min-height: 44px;
 }
 
-/* Cashier keyboard hint */
 .shortcut-hint {
   margin: 0;
   padding: 6px 16px;
@@ -905,5 +901,532 @@
 
   .report-wide {
     grid-column: auto;
+  }
+}
+
+/* ==========================================================================
+   QUICK LOCK SCREEN & KEYPAD OVERLAY STYLES
+   ========================================================================== */
+
+.lock-screen-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 999999 !important;
+  background: rgba(12, 8, 20, 0.65) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+
+.lock-glass-card {
+  width: 360px !important;
+  max-width: 90vw !important;
+  padding: 32px 28px !important;
+  border-radius: var(--radius-lg, 24px) !important;
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3) !important;
+  box-sizing: border-box !important;
+  text-align: center !important;
+  color: var(--text-primary) !important;
+}
+
+.lock-avatar-badge {
+  width: 56px !important;
+  height: 56px !important;
+  margin: 0 auto 12px auto !important;
+  border-radius: 50% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: var(--brand) !important;
+  color: #ffffff !important;
+}
+
+.lock-title {
+  margin: 0 0 4px 0 !important;
+  font-size: 1.35rem !important;
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+}
+
+.lock-subtitle {
+  margin: 0 0 20px 0 !important;
+  font-size: 0.88rem !important;
+  color: var(--text-secondary) !important;
+}
+
+.pin-dots-container {
+  display: flex !important;
+  justify-content: center !important;
+  gap: 16px !important;
+  margin-bottom: 20px !important;
+}
+
+.pin-dot {
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50% !important;
+  border: 2px solid var(--border-input) !important;
+  background: transparent !important;
+  transition: all 180ms ease !important;
+}
+
+.pin-dot.filled {
+  background: var(--brand) !important;
+  border-color: var(--brand) !important;
+  transform: scale(1.15) !important;
+}
+
+.lock-error-alert {
+  color: var(--danger) !important;
+  font-size: 0.82rem !important;
+  font-weight: 600 !important;
+  margin-bottom: 12px !important;
+}
+
+.keypad-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 10px !important;
+  margin-bottom: 16px !important;
+}
+
+.keypad-btn {
+  height: 52px !important;
+  border-radius: var(--radius-md, 12px) !important;
+  font-size: 1.2rem !important;
+  font-weight: 600 !important;
+  background: var(--bg-muted) !important;
+  border: 1px solid var(--border-input) !important;
+  color: var(--text-primary) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: background-color var(--t-fast) var(--ease) !important;
+}
+
+.keypad-btn.action-btn {
+  font-size: 0.95rem !important;
+  font-weight: 700 !important;
+  color: var(--text-secondary) !important;
+}
+
+.keypad-btn:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.08)) !important;
+}
+
+.lock-hint {
+  margin: 0 !important;
+  font-size: 0.78rem !important;
+  color: var(--text-muted) !important;
+}
+
+/* ==========================================================================
+   POS TERMINAL & COMPACT FLOATING CART PANEL
+   ========================================================================== */
+
+.pos-container {
+  display: flex !important;
+  gap: 16px !important;
+  height: calc(100vh - 84px) !important;
+  max-height: calc(100vh - 84px) !important;
+  overflow: hidden !important;
+  padding: 12px 16px !important;
+  box-sizing: border-box !important;
+}
+
+.pos-catalog {
+  flex: 1 1 0% !important;
+  height: 100% !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
+}
+
+.pos-cart-panel {
+  width: 360px !important;
+  min-width: 340px !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius-lg, 20px) !important;
+  padding: 12px 16px 16px 16px !important;
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.06)) !important;
+  box-sizing: border-box !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin !important;
+}
+
+.cart-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 6px !important;
+  flex-shrink: 0 !important;
+}
+
+.cart-header h3 {
+  margin: 0 !important;
+  font-size: 1.1rem !important;
+  font-weight: 700 !important;
+}
+
+.cart-customer-section {
+  margin-bottom: 8px !important;
+  flex-shrink: 0 !important;
+}
+
+.cart-customer-section input {
+  height: 34px !important;
+  padding: 0 12px !important;
+  font-size: 0.85rem !important;
+  border-radius: var(--radius-md, 12px) !important;
+}
+
+.cart-items-list,
+.cart-empty-state {
+  flex: 1 1 0% !important;
+  min-height: 120px !important;
+  overflow-y: auto !important;
+  padding-right: 4px !important;
+  margin-bottom: 6px !important;
+}
+
+.cart-empty-state {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: var(--text-muted) !important;
+  font-size: 0.88rem !important;
+}
+
+.cart-item-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 6px 0 !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  font-size: 0.85rem !important;
+}
+
+.cart-item-controls button {
+  height: 26px !important;
+  width: 26px !important;
+  min-height: 26px !important;
+  min-width: 26px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+}
+
+.cart-summary,
+.cart-totals,
+.summary-box,
+.cart-summary-box,
+[class*="summary"] {
+  padding: 6px 12px !important;
+  margin-bottom: 6px !important;
+  border-radius: 12px !important;
+}
+
+.summary-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  margin-bottom: 2px !important;
+  font-size: 0.8rem !important;
+  color: var(--text-secondary) !important;
+}
+
+.summary-row input {
+  height: 24px !important;
+  width: 60px !important;
+  padding: 0 4px !important;
+  font-size: 0.78rem !important;
+  border-radius: 6px !important;
+  text-align: right !important;
+}
+
+.summary-row.total-due,
+.total-due-row {
+  font-size: 0.95rem !important;
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+  margin-top: 2px !important;
+  padding-top: 4px !important;
+}
+
+.cart-summary-footer,
+.cart-checkout-section {
+  width: 100% !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 4px !important;
+  padding-top: 6px !important;
+  margin-top: auto !important;
+  border-top: 1px dashed var(--border-input, var(--border-color)) !important;
+}
+
+.payment-methods {
+  display: flex !important;
+  gap: 6px !important;
+  margin-bottom: 2px !important;
+}
+
+.pay-btn {
+  flex: 1 !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  font-size: 0.82rem !important;
+  border-radius: 999px !important;
+}
+
+.cash-input-group {
+  display: flex !important;
+  gap: 6px !important;
+  align-items: center !important;
+}
+
+.cash-input-group input,
+.cash-input-group button {
+  height: 32px !important;
+  font-size: 0.82rem !important;
+  border-radius: 10px !important;
+}
+
+.change-due-box,
+.change-due-strip,
+[class*="change-due"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  margin: 4px 0 !important;
+  padding: 8px 12px !important;
+  border-radius: 16px !important;
+  font-size: 0.82rem !important;
+  font-weight: 600 !important;
+  background: var(--success-bg) !important;
+  color: var(--success) !important;
+  text-align: center !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.process-payment-btn,
+.checkout-btn {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  margin: 4px 0 0 0 !important;
+  padding: 0 16px !important;
+  border-radius: 16px !important;
+  background: rgba(136, 14, 79, 0.92) !important;
+  color: #ffffff !important;
+  font-size: 0.88rem !important;
+  font-weight: 700 !important;
+  border: none !important;
+  box-shadow: 0 4px 12px rgba(136, 14, 79, 0.22) !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: transform 180ms ease, background-color 180ms ease !important;
+}
+
+.process-payment-btn:hover:not(:disabled),
+.checkout-btn:hover:not(:disabled) {
+  background: rgba(173, 20, 87, 0.96) !important;
+  transform: translateY(-1px) !important;
+}
+
+.process-payment-btn:active:not(:disabled),
+.checkout-btn:active:not(:disabled) {
+  transform: translateY(0) !important;
+}
+
+/* ==========================================================================
+   GENERAL MODAL CONTAINMENT & RECEIPT THERMAL PRINT ENGINE
+   ========================================================================== */
+
+/* 1. Backdrop Overlay */
+.modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 20px !important;
+  box-sizing: border-box !important;
+  z-index: 999999 !important;
+  background: rgba(12, 8, 20, 0.65) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+/* 2. Outer Modal Card Box (Hugs short content, caps long content at 85vh) */
+.modal-backdrop > .modal,
+.receipt-modal,
+.receipt-card {
+  width: 420px !important;
+  max-width: 92vw !important;
+  height: auto !important;
+  max-height: 85vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  padding: 22px 24px !important;
+  border-radius: 24px !important;
+  background: var(--bg-surface, #ffffff) !important;
+  color: var(--text-primary, #1f1a24) !important;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12)) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35) !important;
+  overflow: hidden !important;
+}
+
+/* 3. Pinned Header */
+.receipt-header,
+.modal-header {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  text-align: center !important;
+}
+
+.receipt-header h2,
+.receipt-header h3,
+.receipt-header p,
+.invoice-no {
+  word-break: break-all !important;
+  margin: 2px 0 !important;
+}
+
+/* 4. Middle Item List (Scrolls only when content exceeds screen) */
+.receipt-body,
+.receipt-details,
+.receipt-content,
+.receipt-paper {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  margin: 10px 0 !important;
+  padding: 10px 14px !important;
+  box-sizing: border-box !important;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08)) !important;
+  border-radius: 16px !important;
+  background: var(--bg-muted, rgba(0, 0, 0, 0.02)) !important;
+  scrollbar-width: thin !important;
+}
+
+.receipt-item-row,
+.receipt-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: flex-start !important;
+  padding: 6px 0 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 5. Pinned Footer Actions */
+.receipt-actions,
+.modal-actions {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  display: flex !important;
+  gap: 10px !important;
+  margin-top: 12px !important;
+}
+
+.receipt-actions button,
+.modal-actions button {
+  flex: 1 !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  border-radius: 12px !important;
+  font-weight: 700 !important;
+  font-size: 0.88rem !important;
+  cursor: pointer !important;
+}
+
+/* 6. Thermal Print Engine */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .modal-backdrop,
+  .modal-backdrop *,
+  .receipt-modal,
+  .receipt-modal *,
+  .receipt-card,
+  .receipt-card * {
+    visibility: visible !important;
+  }
+
+  .modal-backdrop {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .modal-backdrop > .modal,
+  .receipt-modal,
+  .receipt-card {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 80mm !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 8px !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+  }
+
+  .receipt-body,
+  .receipt-details,
+  .receipt-content,
+  .receipt-paper {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 6px 0 !important;
+    background: transparent !important;
+  }
+
+  .receipt-actions,
+  .modal-actions,
+  .receipt-actions *,
+  .modal-actions * {
+    display: none !important;
+    visibility: hidden !important;
   }
 }

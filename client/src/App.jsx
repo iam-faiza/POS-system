@@ -11,12 +11,14 @@ import Dashboard from './components/Dashboard';
 import RolesManager from './components/RolesManager';
 import EmployeesManager from './components/EmployeesManager';
 import Reports from './components/Reports';
+import LockScreen from './components/LockScreen';
 import './App.css';
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('pos');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -36,6 +38,7 @@ export default function App() {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       setUser(null);
+      setIsLocked(false);
     };
     window.addEventListener('authExpired', onAuthExpired);
     return () => window.removeEventListener('authExpired', onAuthExpired);
@@ -45,6 +48,7 @@ export default function App() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    setIsLocked(false);
   };
 
   if (!user) {
@@ -53,6 +57,7 @@ export default function App() {
 
   return (
     <div className="app-layout">
+      {isLocked && <LockScreen user={user} onUnlock={() => setIsLocked(false)} />}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -64,6 +69,7 @@ export default function App() {
         <Navbar 
           user={user} 
           onLogout={handleLogout} 
+          onLock={() => setIsLocked(true)}
           isSidebarCollapsed={isSidebarCollapsed} 
         />
         <main className="main-content">
