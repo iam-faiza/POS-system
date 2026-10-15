@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import API from '../services/api';
-import { Search, Plus, Minus, Trash2, CreditCard, DollarSign, Pause, X } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, CreditCard, DollarSign, Pause, X, Volume2, VolumeX } from 'lucide-react';
 import ReceiptModal from './ReceiptModal';
 import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
 import { isAdminUser } from '../utils/roles';
 import { localizeCustomerValidationError, normalizePakistaniPhone, validateCustomerDetails } from '../utils/customerValidation';
 import AccessibleDialog from './AccessibleDialog';
+import { shortcutAction, SHORTCUT_HINT } from '../utils/posShortcuts';
+import { isSoundEnabled, setSoundEnabled, playScanBeep, playErrorBeep, playSuccessChime } from '../utils/posSound';
 
 export default function PosTerminal({ user }) {
   const { t, formatPrice } = useSettings();
@@ -47,6 +49,9 @@ export default function PosTerminal({ user }) {
     }
   });
   const [showHeldOrders, setShowHeldOrders] = useState(false);
+  const [soundOn, setSoundOn] = useState(isSoundEnabled);
+  // Latest POS actions for the keyboard handler, so it never runs stale closures.
+  const actionsRef = useRef({});
 
   useEffect(() => {
     try {
@@ -55,6 +60,20 @@ export default function PosTerminal({ user }) {
       // Storage can be full or blocked; held orders then only live for this session.
     }
   }, [heldOrders, heldOrdersKey]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const action = shortcutAction(event.key, {
+        dialogOpen: Boolean(document.querySelector('[role="dialog"]'))
+      });
+      if (!action) return;
+      event.preventDefault();
+      actionsRef.current[action]?.();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const fetchShift = async () => {
     try {
@@ -115,14 +134,17 @@ export default function PosTerminal({ user }) {
 
   const addToCart = (product) => {
     if (product.stockQuantity <= 0) {
+      playErrorBeep();
       showToast(t('out_of_stock'), 'error');
       return;
     }
     const existing = cart.find((item) => item.productId === product._id);
     if (existing && existing.quantity >= product.stockQuantity) {
+      playErrorBeep();
       showToast(t('max_stock_reached'), 'error');
       return;
     }
+    playScanBeep();
     setCart((prevCart) => {
       const inCart = prevCart.find((item) => item.productId === product._id);
       if (inCart) {
@@ -203,6 +225,7 @@ export default function PosTerminal({ user }) {
 
       const res = await API.post('/sales', saleData);
       setCompletedSale(res.data);
+      playSuccessChime();
       setCart([]);
       setDiscount(0);
       setSelectedCustomer(null);
@@ -228,6 +251,13 @@ export default function PosTerminal({ user }) {
       p.sku.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCat && matchesSearch;
   });
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundEnabled(next);
+    setSoundOn(next);
+    if (next) playScanBeep();
+  };
 
   const holdOrder = () => {
     if (cart.length === 0) return;
@@ -308,6 +338,7 @@ export default function PosTerminal({ user }) {
       setSearchQuery('');
       setScanMessage('');
     } else {
+      playErrorBeep();
       showScanMessage(t('sku_not_found'));
     }
     searchInputRef.current?.focus();
@@ -320,6 +351,22 @@ export default function PosTerminal({ user }) {
         .sort((a, b) => a - b)
         .slice(0, 3)
     : [];
+
+  // Keep the keyboard handler pointed at the latest state after every render.
+  useEffect(() => {
+    actionsRef.current = {
+      focusSearch: () => searchInputRef.current?.focus(),
+      checkout: () => {
+        if (activeShift && cart.length > 0 && !loading) handleCheckout();
+      },
+      hold: () => holdOrder(),
+      heldOrders: () => {
+        if (heldOrders.length > 0) setShowHeldOrders(true);
+      },
+      cash: () => setPaymentMethod('cash'),
+      card: () => setPaymentMethod('card'),
+    };
+  });
 
   return (
     <div className="pos-container">
@@ -408,6 +455,16 @@ export default function PosTerminal({ user }) {
                 {t('held_orders')} ({heldOrders.length})
               </button>
             )}
+            <button
+              type="button"
+              className="hold-btn"
+              aria-pressed={soundOn}
+              aria-label={soundOn ? 'Mute sounds' : 'Turn sounds on'}
+              title={soundOn ? 'Sounds on' : 'Sounds off'}
+              onClick={toggleSound}
+            >
+              {soundOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            </button>
             <span className="cart-count">{cart.reduce((s, i) => s + i.quantity, 0)} {t('items')}</span>
           </div>
         </div>
@@ -450,6 +507,7 @@ export default function PosTerminal({ user }) {
           </AccessibleDialog>
         )}
 
+        <p className="shortcut-hint">{SHORTCUT_HINT}</p>
         {error && <div className="error-alert">{error}</div>}
 
         {/* Customer Selection */}
