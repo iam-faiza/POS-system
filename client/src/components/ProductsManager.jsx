@@ -33,6 +33,7 @@ export default function ProductsManager({ user }) {
     price: '',
     stockQuantity: '',
     lowStockThreshold: 5,
+    costPrice: '',
     stockAdjustmentReason: ''
   });
   const [error, setError] = useState('');
@@ -124,6 +125,7 @@ export default function ProductsManager({ user }) {
       price: '',
       stockQuantity: '',
       lowStockThreshold: 5,
+      costPrice: '',
       stockAdjustmentReason: ''
     });
     setShowModal(true);
@@ -137,6 +139,7 @@ export default function ProductsManager({ user }) {
       sku: p.sku,
       category: p.category?._id || p.category,
       price: p.price,
+      costPrice: p.costPrice ?? '',
       stockQuantity: p.stockQuantity,
       lowStockThreshold: p.lowStockThreshold,
       stockAdjustmentReason: ''
@@ -150,6 +153,9 @@ export default function ProductsManager({ user }) {
     if (name.length < 2) return 'Product name must be at least 2 characters';
     if (name.length > 100) return 'Product name cannot exceed 100 characters';
     if (!/^[A-Z0-9_-]{3,50}$/.test(sku)) return 'SKU must be 3-50 characters and contain only letters, numbers, hyphens, or underscores';
+    if (formData.costPrice !== '' && (!Number.isFinite(Number(formData.costPrice)) || Number(formData.costPrice) < 0)) {
+      return 'Cost price must be zero or more, or left empty';
+    }
     if (!formData.category) return 'Please select a category';
     const price = Number(formData.price);
     if (!Number.isFinite(price) || price <= 0) return 'Price must be greater than 0';
@@ -173,6 +179,7 @@ export default function ProductsManager({ user }) {
       price: Number(formData.price),
       stockQuantity: Number(formData.stockQuantity),
       lowStockThreshold: Number(formData.lowStockThreshold),
+      costPrice: formData.costPrice === '' ? null : Number(formData.costPrice),
       stockAdjustmentReason: formData.stockAdjustmentReason
     };
 
@@ -530,6 +537,20 @@ export default function ProductsManager({ user }) {
                   onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                   required
                 />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="product-cost">Cost price (optional, for profit)</label>
+                <input
+                  id="product-cost"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.costPrice}
+                  onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
+                  placeholder="Leave empty if unknown"
+                />
+                <small className="field-help">Profit is only calculated for sales where the cost is known. Changing it affects future sales only.</small>
               </div>
 
               <div className="form-group">

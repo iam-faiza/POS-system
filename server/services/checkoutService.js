@@ -174,7 +174,8 @@ async function createSale({ body, cashierId, models, mongooseClient, env }) {
           name: product.name,
           sku: product.sku,
           quantity: requestedItem.quantity,
-          price: priceCents / 100
+          price: priceCents / 100,
+          costPrice: product.costPrice == null ? undefined : Math.round(product.costPrice * 100) / 100
         });
       }
 

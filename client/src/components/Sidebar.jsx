@@ -8,7 +8,8 @@ import {
   Shield, 
   History, 
   ChevronLeft, 
-  ChevronRight 
+  ChevronRight,
+  TrendingUp
 } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { isAdminUser } from '../utils/roles';
@@ -116,6 +117,18 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
           >
             <Users size={20} />
             {!isCollapsed && <span>{t('employees')}</span>}
+          </button>
+        )}
+
+        {(isAdmin || user?.permissions?.includes('sales.view_all')) && (
+          <button
+            type="button"
+            className={`sidebar-item ${activeTab === 'reports' ? 'active' : ''}`}
+            onClick={() => setActiveTab('reports')}
+            title={isCollapsed ? 'Reports' : ''}
+          >
+            <TrendingUp size={20} />
+            {!isCollapsed && <span>Reports</span>}
           </button>
         )}
 

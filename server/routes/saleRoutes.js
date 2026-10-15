@@ -163,7 +163,14 @@ function createSaleRouter({
       res.set('X-Page-Size', String(pagination.pageSize));
       res.set('X-Total-Pages', String(Math.ceil(total / pagination.pageSize)));
       res.set('Access-Control-Expose-Headers', 'X-Total-Count, X-Page, X-Page-Size, X-Total-Pages');
-      res.json(sales);
+      // Cost prices are business-sensitive: only viewers who see all sales get them.
+      const canSeeCost = (req.user.permissions || []).includes(PERMISSIONS.SALES_VIEW_ALL);
+      const payload = canSeeCost ? sales : sales.map((sale) => {
+        const plain = sale.toObject();
+        plain.items = (plain.items || []).map(({ costPrice: _costPrice, ...line }) => line);
+        return plain;
+      });
+      res.json(payload);
     } catch (error) {
       res.status(error.status || 500).json({ message: error.status ? error.message : 'Unable to load sales history' });
     }

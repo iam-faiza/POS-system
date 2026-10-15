@@ -49,6 +49,11 @@ const productSchema = new Schema({
     },
     default: 5
   },
+  costPrice: {
+    type: Number,
+    default: null,
+    min: [0, 'Cost price cannot be negative']
+  },
   isArchived: {
     type: Boolean,
     default: false

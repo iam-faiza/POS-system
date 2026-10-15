@@ -131,10 +131,16 @@ function getStoreTimeZone(env = process.env) {
   return timeZone;
 }
 
+function localHour(date, timeZone) {
+  return dateParts(date, timeZone).hour;
+}
+
 module.exports = {
   SalesFilterError,
   buildSalesDateFilter,
   getStoreTimeZone,
+  localDateKey,
+  localHour,
   parseSalesPagination,
   zonedMidnightUtc
 };

@@ -14,6 +14,7 @@ const roleRoutes = require('./routes/roleRoutes');
 const { corsOptionsForOrigins, getAllowedOrigins, validateJwtSecret } = require('./security/securityConfig');
 const employeeRoutes = require('./routes/employeeRoutes');
 const shiftRoutes = require('./routes/shiftRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 const app = express();
 
 // Set TRUST_PROXY=1 when deployed behind a reverse proxy so rate limiting sees real client IPs.
@@ -34,6 +35,7 @@ app.use('/api/sales', saleRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/shifts', shiftRoutes);
+app.use('/api/reports', reportRoutes);
 
 const PORT = process.env.PORT || 5000;
 

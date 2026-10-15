@@ -15,7 +15,8 @@ const saleSchema = new Schema({
     name: { type: String, required: true },
     sku: { type: String, required: true },
     quantity: { type: Number, required: true },
-    price: { type: Number, required: true }
+    price: { type: Number, required: true },
+    costPrice: { type: Number, min: 0 }
   }],
   subtotal: { type: Number, required: true },
   tax: { type: Number, required: true, default: 0 },

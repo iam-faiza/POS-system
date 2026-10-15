@@ -10,6 +10,7 @@ import SalesHistory from './components/SalesHistory';
 import Dashboard from './components/Dashboard';
 import RolesManager from './components/RolesManager';
 import EmployeesManager from './components/EmployeesManager';
+import Reports from './components/Reports';
 import './App.css';
 
 export default function App() {
@@ -74,6 +75,7 @@ export default function App() {
           {activeTab === 'sales' && <SalesHistory user={user} />}
           {activeTab === 'roles' && <RolesManager user={user} />}
           {activeTab === 'employees' && <EmployeesManager user={user} />}
+          {activeTab === 'reports' && <Reports />}
         </main>
       </div>
     </div>

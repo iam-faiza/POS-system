@@ -9,10 +9,34 @@ export default function Dashboard() {
   const [error, setError] = useState('');
   const showStockAlerts = Array.isArray(summary?.lowStockProducts);
 
+  // Reload the numbers on mount, after every sale or shift change, and every 30 seconds.
+  const [reloadKey, setReloadKey] = useState(0);
+
   useEffect(() => {
-    API.get('/sales/summary')
-      .then((response) => setSummary(response.data))
-      .catch((requestError) => setError(requestError.response?.data?.message || 'Failed to load dashboard summary'));
+    const controller = new AbortController();
+    API.get('/sales/summary', { signal: controller.signal })
+      .then((response) => {
+        setSummary(response.data);
+        setError('');
+      })
+      .catch((requestError) => {
+        if (!controller.signal.aborted) {
+          setError(requestError.response?.data?.message || 'Failed to load dashboard summary');
+        }
+      });
+    return () => controller.abort();
+  }, [reloadKey]);
+
+  useEffect(() => {
+    const refresh = () => setReloadKey((key) => key + 1);
+    const timer = setInterval(refresh, 30000);
+    window.addEventListener('saleCompleted', refresh);
+    window.addEventListener('shiftUpdated', refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('saleCompleted', refresh);
+      window.removeEventListener('shiftUpdated', refresh);
+    };
   }, []);
 
   return (

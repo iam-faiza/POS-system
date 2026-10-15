@@ -226,6 +226,7 @@ export default function PosTerminal({ user }) {
       const res = await API.post('/sales', saleData);
       setCompletedSale(res.data);
       playSuccessChime();
+      window.dispatchEvent(new Event('saleCompleted'));
       setCart([]);
       setDiscount(0);
       setSelectedCustomer(null);

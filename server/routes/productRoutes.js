@@ -10,6 +10,7 @@ const { PERMISSIONS } = require('../utils/permissions');
 const { canReadArchivedProducts, canReadLowStockThreshold } = require('../utils/productAccess');
 const { stockValueError } = require('../utils/inventoryValidation');
 const { saveInventoryAdjustment } = require('../services/inventoryService');
+const { parseCostPrice } = require('../utils/costPrice');
 
 // Normalize SKU consistently
 const normalizeSku = (sku) => String(sku || '').trim().toUpperCase();
@@ -88,7 +89,7 @@ router.get('/', protect, checkPermission(PERMISSIONS.PRODUCTS_VIEW), async (req,
     }
 
     let productsQuery = Product.find(query).populate('category', 'name').sort({ name: 1 });
-    if (!canReadLowStockThreshold(req.user.role)) productsQuery = productsQuery.select('-lowStockThreshold');
+    if (!canReadLowStockThreshold(req.user.role)) productsQuery = productsQuery.select('-lowStockThreshold -costPrice');
     const products = await productsQuery;
     res.json(products);
   } catch (error) {
@@ -174,8 +175,12 @@ router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (r
     category,
     price,
     stockQuantity,
-    lowStockThreshold
+    lowStockThreshold,
+    costPrice
   } = req.body;
+
+  const cost = parseCostPrice(costPrice);
+  if (cost.error) return res.status(400).json({ message: cost.error });
 
   const normalizedSku = normalizeSku(sku);
   const trimmedName = String(name || '').trim();
@@ -219,7 +224,8 @@ router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (r
         category,
         price: Number(price),
         stockQuantity: Number(stockQuantity),
-        lowStockThreshold: Number(lowStockThreshold)
+        lowStockThreshold: Number(lowStockThreshold),
+        costPrice: cost.value
       });
       createdProduct = await product.save({ session });
 
@@ -252,6 +258,8 @@ router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (r
 // Update product (Admin only)
 router.put('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) =>{
   const { name, sku, category, price, stockQuantity, lowStockThreshold } = req.body;
+  const costUpdate = req.body.costPrice !== undefined ? parseCostPrice(req.body.costPrice) : null;
+  if (costUpdate?.error) return res.status(400).json({ message: costUpdate.error });
   if (req.body.stockAdjustmentReason !== undefined &&
       (typeof req.body.stockAdjustmentReason !== 'string' || req.body.stockAdjustmentReason.trim().length > 160)) {
     return res.status(400).json({ message: 'Stock adjustment reason cannot exceed 160 characters' });
@@ -317,6 +325,7 @@ router.put('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async 
         }
       }
 
+      if (costUpdate) product.costPrice = costUpdate.value;
       product.name = updatedName;
       product.sku = updatedSku;
       product.category = targetCategoryId;
