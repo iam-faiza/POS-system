@@ -3,14 +3,23 @@ const router = express.Router();
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
 const Shift = require('../models/Shift');
+const CheckoutAttempt = require('../models/CheckoutAttempt');
 const { protect, admin, checkPermission } = require('../middleware/authMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
-const { createSale, CheckoutError, getCheckoutSettings } = require('../services/checkoutService');
+const {
+  createSale,
+  findCompletedSale,
+  getCheckoutAttemptStatus,
+  reserveCheckoutAttempt,
+  CheckoutError,
+  getCheckoutSettings
+} = require('../services/checkoutService');
 const { salesQueryForUser } = require('../utils/salesAccess');
 const { buildSalesDateFilter, getStoreTimeZone, parseSalesPagination } = require('../utils/salesFilters');
 
 function createSaleRouter({
   SaleModel = Sale,
+  CheckoutAttemptModel = CheckoutAttempt,
   ProductModel = Product,
   ShiftModel = Shift,
   protectMiddleware = protect,
@@ -99,10 +108,52 @@ function createSaleRouter({
     }
   });
 
+  saleRouter.post('/attempts', protectMiddleware, checkPermissionMiddleware(PERMISSIONS.SALES_CREATE), async (req, res) => {
+    try {
+      const result = await reserveCheckoutAttempt({
+        body: req.body,
+        cashierId: req.user.id || req.user._id,
+        idempotencyKey: req.get('Idempotency-Key'),
+        models: { Sale: SaleModel, CheckoutAttempt: CheckoutAttemptModel },
+        env
+      });
+      return res.status(result.status === 'processing' ? 202 : 200).json(result);
+    } catch (error) {
+      return res.status(error.status || 500).json({
+        message: error.status ? error.message : 'Unable to reserve checkout attempt'
+      });
+    }
+  });
+
+  saleRouter.get('/attempts/:idempotencyKey', protectMiddleware, checkPermissionMiddleware(PERMISSIONS.SALES_CREATE), async (req, res) => {
+    try {
+      const result = await getCheckoutAttemptStatus({
+        SaleModel,
+        AttemptModel: CheckoutAttemptModel,
+        cashierId: req.user.id || req.user._id,
+        idempotencyKey: req.params.idempotencyKey
+      });
+      res.set('Cache-Control', 'no-store');
+      return res.json(result);
+    } catch (error) {
+      return res.status(error.status || 500).json({
+        message: error.status ? error.message : 'Unable to reconcile checkout attempt'
+      });
+    }
+  });
+
   // Process a sale (Shift check enforced)
   saleRouter.post('/', protectMiddleware, checkPermission(PERMISSIONS.SALES_CREATE), async (req, res) => {
     try {
       const cashierId = req.user.id || req.user._id;
+      const idempotencyKey = req.get('Idempotency-Key');
+      const completedSale = await findCompletedSale({
+        SaleModel,
+        cashierId,
+        idempotencyKey,
+        body: req.body
+      });
+      if (completedSale) return res.status(200).json(completedSale);
 
       // 1. Verify that cashier has an active OPEN register shift
       const activeShift = await ShiftModel.findOne({ cashier: cashierId, status: 'OPEN' });
@@ -116,6 +167,9 @@ function createSaleRouter({
       const sale = await createSaleService({
         body: req.body,
         cashierId,
+        idempotencyKey,
+        reservationToken: req.get('Checkout-Attempt-Token'),
+        models: { Sale: SaleModel, CheckoutAttempt: CheckoutAttemptModel },
         shiftId: activeShift._id
       });
 

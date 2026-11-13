@@ -48,11 +48,38 @@ function responseRecorder() {
   };
 }
 
+function createSessionModel() {
+  const sessions = new Map();
+  return {
+    sessions,
+    async findOneAndUpdate(filter, update) {
+      let session = sessions.get(filter.sessionId);
+      if (!session) {
+        session = { ...update.$setOnInsert };
+        sessions.set(filter.sessionId, session);
+      }
+      return session;
+    },
+    async create(session) {
+      sessions.set(session.sessionId, session);
+      return session;
+    },
+    async updateOne(filter, update) {
+      const session = sessions.get(filter.sessionId);
+      if (!session || String(session.user) !== String(filter.user)) return { matchedCount: 0 };
+      Object.assign(session, update.$set || {});
+      return { matchedCount: 1 };
+    }
+  };
+}
+
 async function runProtect(token, currentUser) {
+  const SessionModel = createSessionModel();
   const middleware = createProtect({
     UserModel: {
       findById: () => ({ populate() { return this; }, select: async () => currentUser })
     },
+    SessionModel,
     getSecret: () => jwtSecret
   });
   const req = { headers: { authorization: `Bearer ${token}` } };
@@ -85,11 +112,10 @@ test('protect uses the current database role and rejects missing or invalid acco
   const staleAdminToken = jwt.sign({ id: userId, role: 'admin' }, jwtSecret, { expiresIn: '1h', algorithm: 'HS256' });
   const demoted = await runProtect(staleAdminToken, { _id: userId, role: 'cashier' });
   assert.equal(demoted.nextCalled, true);
-  assert.deepEqual(demoted.req.user, {
-    id: userId,
-    role: 'cashier',
-    permissions: DEFAULT_ROLE_PERMISSIONS.cashier
-  });
+  assert.equal(demoted.req.user.id, userId);
+  assert.equal(demoted.req.user.role, 'cashier');
+  assert.deepEqual(demoted.req.user.permissions, DEFAULT_ROLE_PERMISSIONS.cashier);
+  assert.ok(demoted.req.user.sessionId.startsWith('legacy:'));
 
   for (const account of [null, { _id: userId, role: 'owner' }]) {
     await t.test(account ? 'unknown role' : 'deleted account', async () => {
@@ -236,6 +262,7 @@ test('login rejects invalid credentials generically, signs bcrypt-authenticated 
   app.use(express.json());
   app.use('/api/auth', createAuthRouter({
     UserModel: { findOne: ({ email }) => ({ populate: async () => email === user.email ? user : null }) },
+    SessionModel: createSessionModel(),
     getSecret: () => jwtSecret,
     loginRateLimiter: createLoginRateLimiter({ maxAttempts: 2, windowMs: 60000 })
   }));
@@ -267,9 +294,11 @@ test('login rejects invalid credentials generically, signs bcrypt-authenticated 
   });
 
   const appWithFreshLimit = express();
+  const loginSessions = createSessionModel();
   appWithFreshLimit.use(express.json());
   appWithFreshLimit.use('/api/auth', createAuthRouter({
     UserModel: { findOne: () => ({ populate: async () => user }) },
+    SessionModel: loginSessions,
     getSecret: () => jwtSecret,
     loginRateLimiter: createLoginRateLimiter({ maxAttempts: 2 })
   }));
@@ -282,7 +311,10 @@ test('login rejects invalid credentials generically, signs bcrypt-authenticated 
     assert.equal(login.status, 200);
     const result = await login.json();
     assert.equal(result.role, 'cashier');
-    assert.equal(jwt.verify(result.token, jwtSecret, { algorithms: ['HS256'] }).id, userId);
+    const claims = jwt.verify(result.token, jwtSecret, { algorithms: ['HS256'] });
+    assert.equal(claims.id, userId);
+    assert.ok(claims.jti);
+    assert.equal(loginSessions.sessions.get(claims.jti).user, user._id);
   });
 });
 

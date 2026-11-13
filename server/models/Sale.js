@@ -31,12 +31,21 @@ const saleSchema = new Schema({
     cardholderName: { type: String },
     last4: { type: String },
     transactionRef: { type: String }
-  }
+  },
+  idempotencyKey: { type: String, select: false },
+  checkoutRequestHash: { type: String, select: false }
 }, { timestamps: true });
 
 // Speeds up sales history, today's summary and per-cashier views as data grows.
 saleSchema.index({ createdAt: -1 });
 saleSchema.index({ cashier: 1, createdAt: -1 });
 saleSchema.index({ customer: 1 });
+saleSchema.index(
+  { cashier: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $type: 'string' } }
+  }
+);
 
 module.exports = mongoose.model('Sale', saleSchema);

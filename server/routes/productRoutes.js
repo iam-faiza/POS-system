@@ -11,6 +11,7 @@ const { canReadArchivedProducts, canReadLowStockThreshold } = require('../utils/
 const { stockValueError } = require('../utils/inventoryValidation');
 const { saveInventoryAdjustment } = require('../services/inventoryService');
 const { parseCostPrice } = require('../utils/costPrice');
+const { uploadProductImage, resolveProductImageValue, deleteStoredProductImage } = require('../utils/uploadConfig');
 
 // Normalize SKU consistently
 const normalizeSku = (sku) => String(sku || '').trim().toUpperCase();
@@ -168,7 +169,7 @@ router.get('/:id/stock-movements', protect, checkPermission(PERMISSIONS.INVENTOR
 });
 
 // Create product (Admin only)
-router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) => {
+router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), uploadProductImage, async (req, res) => {
   const {
     name,
     sku,
@@ -184,6 +185,7 @@ router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (r
 
   const normalizedSku = normalizeSku(sku);
   const trimmedName = String(name || '').trim();
+  const uploadedImage = resolveProductImageValue({ file: req.file, body: req.body, removeImage: req.body.removeImage, currentImage: null });
 
   const validationError = validateProduct({
     name: trimmedName,
@@ -225,7 +227,8 @@ router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (r
         price: Number(price),
         stockQuantity: Number(stockQuantity),
         lowStockThreshold: Number(lowStockThreshold),
-        costPrice: cost.value
+        costPrice: cost.value,
+        image: uploadedImage
       });
       createdProduct = await product.save({ session });
 
@@ -241,12 +244,17 @@ router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (r
         }).save({ session });
       }
     });
+    if (req.file) req.productImagePersisted = true;
     res.status(201).json(createdProduct);
   } catch (error) {
     if (error.code === 11000) {
       return res.status(400).json({
         message: 'A product with this SKU already exists'
       });
+    }
+
+    if (req.file) {
+      deleteStoredProductImage(req.file.filename ? `/uploads/products/${req.file.filename}` : null);
     }
 
     res.status(error.status || 400).json({ message: error.message });
@@ -256,7 +264,7 @@ router.post('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (r
 });
 
 // Update product (Admin only)
-router.put('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async (req, res) =>{
+router.put('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), uploadProductImage, async (req, res) =>{
   const { name, sku, category, price, stockQuantity, lowStockThreshold } = req.body;
   const costUpdate = req.body.costPrice !== undefined ? parseCostPrice(req.body.costPrice) : null;
   if (costUpdate?.error) return res.status(400).json({ message: costUpdate.error });
@@ -265,6 +273,7 @@ router.put('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async 
     return res.status(400).json({ message: 'Stock adjustment reason cannot exceed 160 characters' });
   }
   let session;
+  let imageToDeleteAfterCommit = null;
   try {
     session = await mongoose.startSession();
     let updatedProduct;
@@ -274,6 +283,14 @@ router.put('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async 
       if (product.isArchived) {
         throw Object.assign(new Error('Restore the product before editing it'), { status: 409 });
       }
+
+      const previousImage = product.image;
+      const resolvedImage = resolveProductImageValue({
+        file: req.file,
+        body: req.body,
+        removeImage: req.body.removeImage,
+        currentImage: previousImage
+      });
 
       const updatedName = name !== undefined ? String(name).trim() : product.name;
       const updatedSku = sku !== undefined ? normalizeSku(sku) : product.sku;
@@ -325,12 +342,15 @@ router.put('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async 
         }
       }
 
+      if (previousImage && previousImage !== resolvedImage) imageToDeleteAfterCommit = previousImage;
+
       if (costUpdate) product.costPrice = costUpdate.value;
       product.name = updatedName;
       product.sku = updatedSku;
       product.category = targetCategoryId;
       product.price = updatedPrice;
       product.lowStockThreshold = Number(updatedThreshold);
+      product.image = resolvedImage;
 
       if (previousStock !== Number(updatedStock)) {
         const reason = typeof req.body.stockAdjustmentReason === 'string'
@@ -349,12 +369,18 @@ router.put('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async 
       }
     });
 
+    if (req.file) req.productImagePersisted = true;
+    if (imageToDeleteAfterCommit) deleteStoredProductImage(imageToDeleteAfterCommit);
     res.json(updatedProduct);
   } catch (error) {
     if (error.code === 11000) {
       return res.status(400).json({
         message: 'A product with this SKU already exists'
       });
+    }
+
+    if (req.file) {
+      deleteStoredProductImage(`/uploads/products/${req.file.filename}`);
     }
 
     res.status(error.status || 400).json({ message: error.message });
@@ -384,6 +410,13 @@ router.delete('/', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), async 
     const referencedIds = [...new Map([...salesWithItems, ...movedProductIds]
       .filter(id => id != null)
       .map(id => [String(id), id])).values()];
+
+    const productsToDelete = await Product.find({ _id: { $nin: referencedIds } });
+    for (const prod of productsToDelete) {
+      if (prod.image) {
+        deleteStoredProductImage(prod.image);
+      }
+    }
 
     // 1. Permanently delete products with NO historical sales
     const deleteResult = await Product.deleteMany({ _id: { $nin: referencedIds } });
@@ -443,6 +476,9 @@ router.delete('/:id', protect, checkPermission(PERMISSIONS.PRODUCTS_MANAGE), asy
     }
 
     // No sales reference: Safe to permanently remove
+    if (product.image) {
+      deleteStoredProductImage(product.image);
+    }
     await product.deleteOne();
     res.json({ message: 'Product deleted successfully', deleted: true });
   } catch (error) {

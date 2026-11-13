@@ -1,14 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut, User, Sun, Moon, Globe, DollarSign, Clock, ShoppingCart, Lock } from 'lucide-react';
+import { LogOut, User, Sun, Moon, Globe, DollarSign, Clock, ShoppingCart, Lock, KeyRound } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { canConvertCurrency } from '../utils/i18n';
 import API from '../services/api';
 import ShiftModal from './ShiftModal';
+import PinManagementModal from './PinManagementModal';
 
 export default function Navbar({ user, onLogout, onLock, isSidebarCollapsed }) {
   const { theme, toggleTheme, language, setLanguage, currency, setCurrency, availableCurrencies, t } = useSettings();
   const [activeShift, setActiveShift] = useState(null);
   const [showShiftModal, setShowShiftModal] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [lockError, setLockError] = useState('');
+
+  const handleLock = async () => {
+    setLockError('');
+    try {
+      await API.post('/auth/lock');
+      onLock();
+    } catch (requestError) {
+      setLockError(requestError.response?.data?.message || 'Unable to lock the POS session.');
+    }
+  };
 
   const checkShift = () => {
     if (user) {
@@ -98,12 +111,23 @@ export default function Navbar({ user, onLogout, onLock, isSidebarCollapsed }) {
           {/* Terminal Lock Button */}
           <button
             type="button"
-            onClick={onLock}
+            onClick={handleLock}
             className="theme-toggle-btn"
             title="Lock Register Screen"
             aria-label="Lock Register Screen"
           >
             <Lock size={18} />
+          </button>
+          {lockError && <span className="lock-error-alert" role="alert">{lockError}</span>}
+
+          <button
+            type="button"
+            onClick={() => setShowPinModal(true)}
+            className="theme-toggle-btn"
+            title="Manage personal unlock PIN"
+            aria-label="Manage personal unlock PIN"
+          >
+            <KeyRound size={18} />
           </button>
 
           {/* User Info */}
@@ -128,6 +152,7 @@ export default function Navbar({ user, onLogout, onLock, isSidebarCollapsed }) {
           user={user}
         />
       )}
+      {showPinModal && <PinManagementModal onClose={() => setShowPinModal(false)} />}
     </>
   );
 }

@@ -2,12 +2,10 @@ import React, { useState, useEffect } from 'react';
 import API from '../services/api';
 import { Users, Plus, Trash2, Search, CheckCircle, AlertCircle, Shield, Mail, Lock } from 'lucide-react';
 import AccessibleDialog from './AccessibleDialog';
-import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
 import { isAdminUser } from '../utils/roles';
 
 export default function EmployeesManager({ user }) {
-  const { t } = useSettings();
   const { showToast } = useToast();
   const [employees, setEmployees] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -19,6 +17,7 @@ export default function EmployeesManager({ user }) {
   const [loading, setLoading] = useState(false);
 
   const canManageEmployees = isAdminUser(user) || user?.permissions?.includes('employees.manage');
+  const isAdminTarget = (employee) => String(employee.roleRef?.name || employee.role || '').toLowerCase() === 'admin';
 
   useEffect(() => {
     fetchEmployees();
@@ -76,6 +75,10 @@ export default function EmployeesManager({ user }) {
   const handleDelete = async (emp) => {
     if (emp._id === (user?._id || user?.id)) {
       showToast('You cannot delete your own account.', 'error');
+      return;
+    }
+    if (isAdminTarget(emp) && !isAdminUser(user)) {
+      showToast('Only an administrator can manage administrator accounts.', 'error');
       return;
     }
     if (!window.confirm(`Are you sure you want to remove employee "${emp.name}"?`)) return;
@@ -153,7 +156,7 @@ export default function EmployeesManager({ user }) {
                 <td>{new Date(emp.createdAt).toLocaleDateString()}</td>
                 {canManageEmployees && (
                   <td>
-                    {emp._id !== user?.id ? (
+                    {emp._id !== (user?._id || user?.id) && (!isAdminTarget(emp) || isAdminUser(user)) ? (
                       <button
                         className="icon-btn danger"
                         onClick={() => handleDelete(emp)}

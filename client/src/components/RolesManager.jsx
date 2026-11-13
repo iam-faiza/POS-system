@@ -2,61 +2,14 @@ import React, { useState, useEffect } from 'react';
 import API from '../services/api';
 import { Shield, Plus, Edit, Trash2, Search, CheckCircle, AlertCircle, Lock } from 'lucide-react';
 import AccessibleDialog from './AccessibleDialog';
-import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
 import { isAdminUser } from '../utils/roles';
-
-const PERMISSION_MODULES = [
-  {
-    title: 'Dashboard',
-    permissions: [
-      { key: 'dashboard.view_own', label: 'View Own Dashboard' },
-      { key: 'dashboard.view_team', label: 'View Team Dashboard' }
-    ]
-  },
-  {
-    title: 'Sales & POS',
-    permissions: [
-      { key: 'sales.create', label: 'Create Sales / Checkout' },
-      { key: 'sales.view_own', label: 'View Own Sales' },
-      { key: 'sales.view_all', label: 'View All Sales History' }
-    ]
-  },
-  {
-    title: 'Products & Categories',
-    permissions: [
-      { key: 'products.view', label: 'View Products' },
-      { key: 'products.manage', label: 'Manage Products & Categories' }
-    ]
-  },
-  {
-    title: 'Inventory',
-    permissions: [
-      { key: 'inventory.view', label: 'View Inventory' },
-      { key: 'inventory.manage', label: 'Manage Inventory Adjustments' }
-    ]
-  },
-  {
-    title: 'Customers',
-    permissions: [
-      { key: 'customers.view', label: 'View Customers' },
-      { key: 'customers.create', label: 'Create Customers' },
-      { key: 'customers.manage', label: 'Manage & Archive Customers' }
-    ]
-  },
-  {
-    title: 'Administration & Staff',
-    permissions: [
-      { key: 'employees.manage', label: 'Manage Employees' },
-      { key: 'roles.manage', label: 'Manage Roles & Permissions' }
-    ]
-  }
-];
+import { groupPermissionsByModule } from '../utils/featureAccess';
 
 export default function RolesManager({ user }) {
-  const { t } = useSettings();
   const { showToast } = useToast();
   const [roles, setRoles] = useState([]);
+  const [permissionRegistry, setPermissionRegistry] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editRole, setEditRole] = useState(null);
@@ -75,6 +28,7 @@ export default function RolesManager({ user }) {
   useEffect(() => {
     fetchRoles();
     fetchPresets();
+    fetchPermissions();
   }, []);
 
   const fetchRoles = async () => {
@@ -83,6 +37,15 @@ export default function RolesManager({ user }) {
       setRoles(res.data);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const fetchPermissions = async () => {
+    try {
+      const res = await API.get('/roles/permissions');
+      if (Array.isArray(res.data)) setPermissionRegistry(res.data);
+    } catch (err) {
+      console.error('Failed to load permission registry', err);
     }
   };
 
@@ -346,7 +309,7 @@ export default function RolesManager({ user }) {
             <div className="form-group">
               <label>Permissions by Module</label>
               <div className="perm-grid">
-                {PERMISSION_MODULES.map((mod) => (
+                {groupPermissionsByModule(permissionRegistry).map((mod) => (
                   <div key={mod.title} className="perm-group">
                     <strong className="perm-group-title">
                       {mod.title}

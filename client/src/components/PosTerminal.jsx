@@ -9,6 +9,12 @@ import { localizeCustomerValidationError, normalizePakistaniPhone, validateCusto
 import AccessibleDialog from './AccessibleDialog';
 import { shortcutAction, SHORTCUT_HINT } from '../utils/posShortcuts';
 import { isSoundEnabled, setSoundEnabled, playScanBeep, playErrorBeep, playSuccessChime } from '../utils/posSound';
+import {
+  clearCheckoutAttempt,
+  fingerprintCheckoutPayload,
+  loadCheckoutAttempt,
+  saveCheckoutAttempt
+} from '../utils/checkoutAttempt';
 
 export default function PosTerminal({ user }) {
   const { t, formatPrice } = useSettings();
@@ -38,6 +44,13 @@ export default function PosTerminal({ user }) {
   const searchTimeoutRef = useRef(null);
   const searchInputRef = useRef(null);
   const scanMessageTimeoutRef = useRef(null);
+  const checkoutAttemptStorageKey = `pos_checkout_attempt_${user?._id || user?.id || 'anon'}`;
+  const checkoutAttemptRef = useRef(null);
+  const checkoutAttemptLoadedRef = useRef(false);
+  if (!checkoutAttemptLoadedRef.current) {
+    checkoutAttemptRef.current = loadCheckoutAttempt(checkoutAttemptStorageKey);
+    checkoutAttemptLoadedRef.current = true;
+  }
   const [scanMessage, setScanMessage] = useState('');
   const heldOrdersKey = `pos_held_orders_${user?._id || user?.id || 'anon'}`;
   const [heldOrders, setHeldOrders] = useState(() => {
@@ -195,6 +208,26 @@ export default function PosTerminal({ user }) {
   const discountAmount = Number(discount || 0);
   const total = Number((subtotal + tax - discountAmount).toFixed(2));
 
+  const showCompletedSale = (sale, clearCurrentCart = true) => {
+    setCompletedSale(sale);
+    checkoutAttemptRef.current = null;
+    clearCheckoutAttempt(checkoutAttemptStorageKey);
+    playSuccessChime();
+    window.dispatchEvent(new Event('saleCompleted'));
+    if (!clearCurrentCart) {
+      fetchData();
+      return;
+    }
+    setCart([]);
+    setDiscount(0);
+    setSelectedCustomer(null);
+    setCustomerSearchQuery('');
+    setCashReceived('');
+    setCardType('Visa');
+    setPaymentMethod('cash');
+    fetchData();
+  };
+
   const handleCheckout = async () => {
     if (!activeShift) {
       setError('Register shift is closed. Please open a shift from the top header before selling.');
@@ -223,18 +256,61 @@ export default function PosTerminal({ user }) {
         ...(paymentMethod === 'card' && { paymentDetails: { cardType } })
       };
 
-      const res = await API.post('/sales', saleData);
-      setCompletedSale(res.data);
-      playSuccessChime();
-      window.dispatchEvent(new Event('saleCompleted'));
-      setCart([]);
-      setDiscount(0);
-      setSelectedCustomer(null);
-      setCustomerSearchQuery('');
-      setCashReceived('');
-      setCardType('Visa');
-      setPaymentMethod('cash');
-      fetchData();
+      const payloadFingerprint = await fingerprintCheckoutPayload(saleData);
+      let hasUnresolvedAttempt = checkoutAttemptRef.current &&
+        checkoutAttemptRef.current.fingerprint !== payloadFingerprint;
+      if (hasUnresolvedAttempt) {
+        const statusResponse = await API.get(`/sales/attempts/${encodeURIComponent(checkoutAttemptRef.current.key)}`);
+        const previousAttempt = statusResponse.data;
+        if (previousAttempt.status === 'completed') {
+          showCompletedSale(previousAttempt.sale, false);
+          return;
+        }
+        if (previousAttempt.status === 'processing') {
+          setError('The previous checkout is still processing. Keep this cart and retry reconciliation shortly.');
+          return;
+        }
+        if (!['retryable', 'not_found'].includes(previousAttempt.status)) {
+          setError('Unable to safely reconcile the previous checkout. Keep its contents and retry.');
+          return;
+        }
+        if (!window.confirm('The previous checkout was confirmed as not committed. Start a new checkout with these contents?')) {
+          return;
+        }
+      }
+
+      if (!checkoutAttemptRef.current || hasUnresolvedAttempt) {
+        const newAttempt = {
+          key: globalThis.crypto.randomUUID(),
+          fingerprint: payloadFingerprint
+        };
+        if (!saveCheckoutAttempt(checkoutAttemptStorageKey, newAttempt)) {
+          setError('Unable to safely save this checkout attempt. Check browser storage and retry.');
+          return;
+        }
+        checkoutAttemptRef.current = newAttempt;
+      }
+
+      const requestConfig = {
+        headers: { 'Idempotency-Key': checkoutAttemptRef.current.key }
+      };
+      const reservation = await API.post('/sales/attempts', saleData, requestConfig);
+      if (reservation.data?.status === 'completed') {
+        showCompletedSale(reservation.data.sale);
+        return;
+      }
+      if (reservation.data?.status === 'processing') {
+        setError('The previous checkout is still processing. Keep this cart and retry reconciliation shortly.');
+        return;
+      }
+      if (reservation.data?.status !== 'reserved' || typeof reservation.data?.reservationToken !== 'string') {
+        setError('Unable to safely reserve this checkout. Reconcile the attempt and retry.');
+        return;
+      }
+      requestConfig.headers['Checkout-Attempt-Token'] = reservation.data.reservationToken;
+
+      const res = await API.post('/sales', saleData, requestConfig);
+      showCompletedSale(res.data);
     } catch (err) {
       setError(err.response?.data?.message || t('checkout_failed'));
     } finally {
@@ -416,6 +492,14 @@ export default function PosTerminal({ user }) {
               aria-label={`${p.name}, SKU ${p.sku}, ${t('stock')} ${p.stockQuantity}, ${formatPrice(p.price)}`}
               onClick={() => addToCart(p)}
             >
+              <img
+                className="product-card-image"
+                src={p.image || '/product-placeholder.svg'}
+                alt={p.name}
+                onError={(event) => {
+                  event.currentTarget.src = '/product-placeholder.svg';
+                }}
+              />
               <div className="product-name">{p.name}</div>
               <div className="product-sku">SKU: {p.sku}</div>
               <div className="product-footer">

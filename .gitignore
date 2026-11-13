@@ -17,3 +17,4 @@ mongodb-data/
 dump/
 *.dump
 .ui_backup_*/
+server/uploads/

@@ -12,11 +12,11 @@ import {
   TrendingUp
 } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
-import { isAdminUser } from '../utils/roles';
+import { hasFeatureAccess } from '../utils/featureAccess';
 
-export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, setIsCollapsed }) {
+export default function Sidebar({ activeTab, setActiveTab, user, permissionRegistry, isCollapsed, setIsCollapsed }) {
   const { t } = useSettings();
-  const isAdmin = isAdminUser(user);
+  const canAccess = (feature) => hasFeatureAccess(user, permissionRegistry, feature);
 
   return (
     <aside className={`app-sidebar ${isCollapsed ? 'collapsed' : ''}`}>
@@ -38,7 +38,7 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
       </div>
 
       <nav className="sidebar-nav">
-        {(isAdmin || user?.permissions?.includes('dashboard.view_own') || user?.permissions?.includes('dashboard.view_team')) && (
+        {canAccess('dashboard') && (
           <button
             type="button"
             className={`sidebar-item ${activeTab === 'dashboard' ? 'active' : ''}`}
@@ -50,7 +50,7 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
           </button>
         )}
 
-        <button
+        {canAccess('pos') && <button
           type="button"
           className={`sidebar-item ${activeTab === 'pos' ? 'active' : ''}`}
           onClick={() => setActiveTab('pos')}
@@ -58,9 +58,9 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
         >
           <ShoppingCart size={20} />
           {!isCollapsed && <span>{t('pos_terminal')}</span>}
-        </button>
+        </button>}
 
-        {(isAdmin || user?.permissions?.includes('products.view') || user?.permissions?.includes('products.manage')) && (
+        {canAccess('products') && (
           <button
             type="button"
             className={`sidebar-item ${activeTab === 'products' ? 'active' : ''}`}
@@ -72,7 +72,7 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
           </button>
         )}
 
-        {(isAdmin || user?.permissions?.includes('products.view') || user?.permissions?.includes('products.manage')) && (
+        {canAccess('categories') && (
           <button
             type="button"
             className={`sidebar-item ${activeTab === 'categories' ? 'active' : ''}`}
@@ -84,7 +84,7 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
           </button>
         )}
 
-        {(isAdmin || user?.permissions?.includes('customers.view')) && (
+        {canAccess('customers') && (
           <button
             type="button"
             className={`sidebar-item ${activeTab === 'customers' ? 'active' : ''}`}
@@ -96,7 +96,7 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
           </button>
         )}
 
-        {(isAdmin || user?.permissions?.includes('roles.manage')) && (
+        {canAccess('roles') && (
           <button
             type="button"
             className={`sidebar-item ${activeTab === 'roles' ? 'active' : ''}`}
@@ -108,7 +108,7 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
           </button>
         )}
 
-        {(isAdmin || user?.permissions?.includes('employees.manage')) && (
+        {canAccess('employees') && (
           <button
             type="button"
             className={`sidebar-item ${activeTab === 'employees' ? 'active' : ''}`}
@@ -120,7 +120,7 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
           </button>
         )}
 
-        {(isAdmin || user?.permissions?.includes('sales.view_all')) && (
+        {canAccess('reports') && (
           <button
             type="button"
             className={`sidebar-item ${activeTab === 'reports' ? 'active' : ''}`}
@@ -132,7 +132,7 @@ export default function Sidebar({ activeTab, setActiveTab, user, isCollapsed, se
           </button>
         )}
 
-        {(isAdmin || user?.permissions?.includes('sales.view_own') || user?.permissions?.includes('sales.view_all')) && (
+        {canAccess('sales') && (
           <button
             type="button"
             className={`sidebar-item ${activeTab === 'sales' ? 'active' : ''}`}

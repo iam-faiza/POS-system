@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
 const { test } = require('node:test');
-const { CheckoutError, createSale } = require('../services/checkoutService');
+const { CheckoutError, createSale, reserveCheckoutAttempt } = require('../services/checkoutService');
+const Sale = require('../models/Sale');
 
 const cashierId = '507f1f77bcf86cd799439012';
 const productId = '507f1f77bcf86cd799439011';
@@ -10,7 +12,11 @@ function createHarness({ stock = 5, failStockUpdate = false, failMovementSave = 
     stock,
     sales: [],
     movements: [],
-    updateAttempts: 0
+    updateAttempts: 0,
+    saleSequence: 0,
+    attemptSequence: 0,
+    checkoutAttempts: new Map(),
+    failMovementSave
   };
   let transactionQueue = Promise.resolve();
 
@@ -20,13 +26,19 @@ function createHarness({ stock = 5, failStockUpdate = false, failMovementSave = 
       let release;
       transactionQueue = new Promise((resolve) => { release = resolve; });
       await previous;
-      const before = { stock: state.stock, sales: [...state.sales], movements: [...state.movements] };
+      const before = {
+        stock: state.stock,
+        sales: [...state.sales],
+        movements: [...state.movements],
+        checkoutAttempts: new Map([...state.checkoutAttempts].map(([key, attempt]) => [key, { ...attempt }]))
+      };
       try {
         return await callback();
       } catch (error) {
         state.stock = before.stock;
         state.sales = before.sales;
         state.movements = before.movements;
+        state.checkoutAttempts = before.checkoutAttempts;
         throw error;
       } finally {
         release();
@@ -39,11 +51,18 @@ function createHarness({ stock = 5, failStockUpdate = false, failMovementSave = 
   class FakeSale {
     constructor(data) {
       Object.assign(this, data);
-      this._id = '507f1f77bcf86cd799439013';
+      state.saleSequence += 1;
+      this._id = `sale-${state.saleSequence}`;
     }
 
     async save() {
       if (failSaleSave) throw new Error('simulated sale write failure');
+      if (state.sales.some((sale) => String(sale.cashier) === String(this.cashier) &&
+          sale.idempotencyKey === this.idempotencyKey)) {
+        const duplicate = new Error('duplicate cashier/idempotency key');
+        duplicate.code = 11000;
+        throw duplicate;
+      }
       state.sales.push(this);
       return this;
     }
@@ -55,8 +74,27 @@ function createHarness({ stock = 5, failStockUpdate = false, failMovementSave = 
     }
 
     async save() {
-      if (failMovementSave) throw new Error('simulated movement write failure');
+      if (state.failMovementSave) throw new Error('simulated movement write failure');
       state.movements.push(this);
+      return this;
+    }
+  }
+
+  class FakeCheckoutAttempt {
+    constructor(data) {
+      Object.assign(this, data);
+      state.attemptSequence += 1;
+      this._id = `attempt-${state.attemptSequence}`;
+    }
+
+    async save() {
+      const key = `${String(this.cashier)}:${this.idempotencyKey}`;
+      if (state.checkoutAttempts.has(key)) {
+        const duplicate = new Error('duplicate cashier/idempotency key');
+        duplicate.code = 11000;
+        throw duplicate;
+      }
+      state.checkoutAttempts.set(key, this);
       return this;
     }
   }
@@ -85,8 +123,34 @@ function createHarness({ stock = 5, failStockUpdate = false, failMovementSave = 
     Customer: {
       findById: (id) => ({ session: async () => customerMap[String(id)] || null })
     },
+    CheckoutAttempt: FakeCheckoutAttempt,
     Sale: FakeSale,
+    SaleLookup: FakeSale,
     StockMovement: FakeStockMovement
+  };
+  models.Sale.findOne = async ({ cashier, idempotencyKey }) =>
+    state.sales.find((sale) => String(sale.cashier) === String(cashier) && sale.idempotencyKey === idempotencyKey) || null;
+  const attemptKey = ({ cashier, idempotencyKey }) => `${String(cashier)}:${idempotencyKey}`;
+  models.CheckoutAttempt.findOne = async (filter) => state.checkoutAttempts.get(attemptKey(filter)) || null;
+  models.CheckoutAttempt.findOneAndUpdate = async (filter, update) => {
+    const attempt = state.checkoutAttempts.get(attemptKey(filter));
+    if (!attempt || Object.entries(filter).some(([field, value]) => field !== 'cashier' &&
+        field !== 'idempotencyKey' && field !== 'leaseExpiresAt' && String(attempt[field]) !== String(value))) {
+      return null;
+    }
+    Object.assign(attempt, update.$set || {});
+    for (const field of Object.keys(update.$unset || {})) delete attempt[field];
+    return attempt;
+  };
+  models.CheckoutAttempt.updateOne = async (filter, update) => {
+    const attempt = state.checkoutAttempts.get(attemptKey(filter));
+    if (!attempt || Object.entries(filter).some(([field, value]) => field !== 'cashier' &&
+        field !== 'idempotencyKey' && field !== '_id' && field !== 'leaseExpiresAt' && String(attempt[field]) !== String(value))) {
+      return { matchedCount: 0, modifiedCount: 0 };
+    }
+    Object.assign(attempt, update.$set || {});
+    for (const field of Object.keys(update.$unset || {})) delete attempt[field];
+    return { matchedCount: 1, modifiedCount: 1 };
   };
   const mongooseClient = {
     connection: {
@@ -116,10 +180,20 @@ function request(overrides = {}) {
   };
 }
 
-async function checkout(harness, body = request(), env = {}) {
+async function checkout(harness, body = request(), env = {}, idempotencyKey = randomUUID(), requestCashierId = cashierId) {
+  const reservation = await reserveCheckoutAttempt({
+    body,
+    cashierId: requestCashierId,
+    idempotencyKey,
+    models: harness.models,
+    env
+  });
+  if (reservation.status === 'completed') return reservation.sale;
   return createSale({
     body,
-    cashierId,
+    cashierId: requestCashierId,
+    idempotencyKey,
+    reservationToken: reservation.reservationToken,
     models: harness.models,
     mongooseClient: harness.mongooseClient,
     env
@@ -142,6 +216,72 @@ test('uses product snapshots and calculates totals instead of trusting forged cl
   assert.equal(harness.state.movements[0].quantityBefore, 5);
   assert.equal(harness.state.movements[0].quantityAfter, 3);
   assert.equal(String(harness.state.movements[0].sale), sale._id);
+  assert.equal(harness.state.sales.length, 1);
+});
+
+test('replays the original sale for the same cashier and key without repeating stock or movement writes', async () => {
+  const harness = createHarness();
+  const key = randomUUID();
+  const original = await checkout(harness, request(), {}, key);
+  const repeated = await checkout(harness, request(), {}, key);
+
+  assert.equal(harness.state.sales.length, 1);
+  assert.equal(harness.state.movements.length, 1);
+  assert.equal(harness.state.stock, 3);
+  assert.equal(repeated.invoiceNumber, original.invoiceNumber);
+  assert.equal(repeated._id, original._id);
+  assert.equal(repeated.idempotencyKey, undefined);
+  assert.equal(repeated.checkoutRequestHash, undefined);
+});
+
+test('rejects reusing a checkout key with a different payload', async () => {
+  const harness = createHarness();
+  const key = randomUUID();
+  await checkout(harness, request(), {}, key);
+
+  await assert.rejects(
+    checkout(harness, request({ items: [{ productId, quantity: 1 }] }), {}, key),
+    (error) => error instanceof CheckoutError && error.status === 409 && /different checkout payload/.test(error.message)
+  );
+  assert.equal(harness.state.sales.length, 1);
+  assert.equal(harness.state.movements.length, 1);
+  assert.equal(harness.state.stock, 3);
+});
+
+test('same-key concurrent requests commit one sale and return the same invoice', async () => {
+  const harness = createHarness();
+  const key = randomUUID();
+  const body = request({ items: [{ productId, quantity: 1 }] });
+  const [first, second] = await Promise.all([
+    checkout(harness, body, {}, key),
+    checkout(harness, body, {}, key)
+  ]);
+
+  assert.equal(harness.state.sales.length, 1);
+  assert.equal(harness.state.movements.length, 1);
+  assert.equal(harness.state.stock, 4);
+  assert.equal(first.invoiceNumber, second.invoiceNumber);
+  assert.equal(first._id, second._id);
+});
+
+test('idempotency keys are scoped to the cashier and a new key creates a new sale', async () => {
+  const harness = createHarness();
+  const key = randomUUID();
+  const original = await checkout(harness, request({ items: [{ productId, quantity: 1 }] }), {}, key);
+  const otherCashierSale = await checkout(
+    harness,
+    request({ items: [{ productId, quantity: 1 }] }),
+    {},
+    key,
+    '507f1f77bcf86cd799439099'
+  );
+  const newCheckout = await checkout(harness, request({ items: [{ productId, quantity: 1 }] }));
+
+  assert.equal(harness.state.sales.length, 3);
+  assert.notEqual(otherCashierSale._id, original._id);
+  assert.notEqual(newCheckout.invoiceNumber, original.invoiceNumber);
+  assert.equal(harness.state.movements.length, 3);
+  assert.equal(harness.state.stock, 2);
 });
 
 test('uses configured tax rate and calculates cash tender/change on the server', async () => {
@@ -244,6 +384,22 @@ test('rolls back sale and inventory when movement creation fails', async () => {
   assert.equal(harness.state.movements.length, 0);
 });
 
+test('failed transaction leaves no idempotency result and the same key can be retried', async () => {
+  const harness = createHarness({ failMovementSave: true });
+  const key = randomUUID();
+  await assert.rejects(checkout(harness, request(), {}, key), /simulated movement write failure/);
+  assert.equal(harness.state.stock, 5);
+  assert.equal(harness.state.sales.length, 0);
+  assert.equal(harness.state.movements.length, 0);
+
+  harness.state.failMovementSave = false;
+  const sale = await checkout(harness, request(), {}, key);
+  assert.equal(harness.state.sales.length, 1);
+  assert.equal(harness.state.movements.length, 1);
+  assert.equal(harness.state.stock, 3);
+  assert.ok(sale.invoiceNumber);
+});
+
 test('allows only one concurrent checkout for the final stock unit', async () => {
   const harness = createHarness({ stock: 1 });
   const body = request({ items: [{ productId, quantity: 1 }] });
@@ -287,6 +443,14 @@ test('rejects unaccepted payment methods', async () => {
     (error) => error instanceof CheckoutError && error.status === 400
   );
   assert.equal(harness.state.sales.length, 0);
+});
+
+test('Sale declares a partial unique cashier/idempotency index compatible with historical records', () => {
+  const idemIndex = Sale.schema.indexes().find(([keys, options]) =>
+    keys.cashier === 1 && keys.idempotencyKey === 1 && options.unique === true
+  );
+  assert.ok(idemIndex);
+  assert.deepEqual(idemIndex[1].partialFilterExpression, { idempotencyKey: { $type: 'string' } });
 });
 
 test('attaches customer snapshot on valid customer ID and rejects unknown customer ID', async () => {

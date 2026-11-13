@@ -1027,6 +1027,47 @@
   color: var(--text-muted) !important;
 }
 
+.lock-password-form,
+.pin-management-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lock-password-form .lock-hint,
+.pin-management-form p {
+  margin: 0;
+}
+
+.lock-password-form input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md, 12px);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.pin-management-modal {
+  gap: 12px;
+}
+
+.pin-management-modal h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.pin-management-options {
+  display: flex;
+  gap: 10px;
+}
+
+.pin-management-options > button {
+  flex: 1 1 0;
+}
+
 /* ==========================================================================
    POS TERMINAL & COMPACT FLOATING CART PANEL
    ========================================================================== */
@@ -1267,14 +1308,36 @@
   inset: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
+  height: 100dvh !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   padding: 20px !important;
   box-sizing: border-box !important;
+  overflow: hidden !important;
   z-index: 999999 !important;
   background: rgba(12, 8, 20, 0.65) !important;
   backdrop-filter: blur(16px) !important;
+}
+
+.receipt-modal {
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  max-height: calc(100vh - 40px) !important;
+  max-height: calc(100dvh - 40px) !important;
+  overflow: hidden !important;
+}
+
+.receipt-modal > .receipt-details {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+}
+
+.receipt-modal > .receipt-actions {
+  flex: 0 0 auto !important;
 }
 
 /* 2. Outer Modal Card Box (Hugs short content, caps long content at 85vh and scrolls smoothly) */
@@ -1386,6 +1449,7 @@
     width: 100% !important;
     height: auto !important;
     min-height: 0 !important;
+    overflow: visible !important;
     background: #ffffff !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;

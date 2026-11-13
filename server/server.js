@@ -15,6 +15,11 @@ const { corsOptionsForOrigins, getAllowedOrigins, validateJwtSecret } = require(
 const employeeRoutes = require('./routes/employeeRoutes');
 const shiftRoutes = require('./routes/shiftRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const Role = require('./models/Role');
+const Sale = require('./models/Sale');
+const CheckoutAttempt = require('./models/CheckoutAttempt');
+const { syncAdminRolePermissions } = require('./utils/permissions');
+const { getConfiguredUploadDir, getPublicUploadBase, serveLegacyProductImage } = require('./utils/uploadConfig');
 const app = express();
 
 // Set TRUST_PROXY=1 when deployed behind a reverse proxy so rate limiting sees real client IPs.
@@ -26,6 +31,9 @@ if (process.env.TRUST_PROXY) {
 const allowedOrigins = getAllowedOrigins();
 app.use(cors(corsOptionsForOrigins(allowedOrigins)));
 app.use(express.json());
+
+const productImagesDir = getConfiguredUploadDir();
+app.use(`${getPublicUploadBase()}/products`, serveLegacyProductImage(productImagesDir));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/categories', categoryRoutes);
@@ -46,6 +54,9 @@ async function startServer() {
   }
 
   await mongoose.connect(process.env.MONGO_URI);
+  await Sale.createIndexes();
+  await CheckoutAttempt.createIndexes();
+  await syncAdminRolePermissions(Role);
   console.log('Connected to MongoDB');
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }

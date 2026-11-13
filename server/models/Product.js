@@ -54,6 +54,11 @@ const productSchema = new Schema({
     default: null,
     min: [0, 'Cost price cannot be negative']
   },
+  image: {
+    type: String,
+    default: null,
+    trim: true
+  },
   isArchived: {
     type: Boolean,
     default: false

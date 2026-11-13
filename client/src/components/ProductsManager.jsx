@@ -36,6 +36,9 @@ export default function ProductsManager({ user }) {
     costPrice: '',
     stockAdjustmentReason: ''
   });
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [removeImage, setRemoveImage] = useState(false);
   const [error, setError] = useState('');
 
   const isAdmin = isAdminUser(user);
@@ -115,6 +118,12 @@ export default function ProductsManager({ user }) {
     fetchArchivedProducts(archivedSearchQuery, cat);
   };
 
+  const resetImageSelection = (product = null) => {
+    setSelectedImage(null);
+    setRemoveImage(false);
+    setImagePreview(product?.image || '');
+  };
+
   const handleOpenAdd = () => {
     setEditProduct(null);
     setError('');
@@ -128,6 +137,7 @@ export default function ProductsManager({ user }) {
       costPrice: '',
       stockAdjustmentReason: ''
     });
+    resetImageSelection();
     setShowModal(true);
   };
 
@@ -144,6 +154,7 @@ export default function ProductsManager({ user }) {
       lowStockThreshold: p.lowStockThreshold,
       stockAdjustmentReason: ''
     });
+    resetImageSelection(p);
     setShowModal(true);
   };
 
@@ -166,6 +177,28 @@ export default function ProductsManager({ user }) {
     return null;
   };
 
+  const handleImageSelection = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Please select a JPG, PNG, or WEBP image.');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Image size must be 2 MB or less.');
+      event.target.value = '';
+      return;
+    }
+
+    setSelectedImage(file);
+    setRemoveImage(false);
+    setImagePreview(URL.createObjectURL(file));
+    setError('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -184,11 +217,29 @@ export default function ProductsManager({ user }) {
     };
 
     try {
+      const payload = new FormData();
+      Object.entries(cleanedData).forEach(([key, value]) => {
+        if (value !== null && value !== undefined && value !== '') {
+          payload.append(key, value);
+        }
+      });
+
+      if (selectedImage) {
+        payload.append('image', selectedImage);
+      }
+      if (removeImage) {
+        payload.append('removeImage', 'true');
+      }
+
       if (editProduct) {
-        await API.put(`/products/${editProduct._id}`, cleanedData);
+        await API.put(`/products/${editProduct._id}`, payload, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
         setFeedback({ type: 'success', message: `Product "${cleanedData.name}" updated successfully` });
       } else {
-        await API.post('/products', cleanedData);
+        await API.post('/products', payload, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
         setFeedback({ type: 'success', message: `Product "${cleanedData.name}" created successfully` });
       }
       setShowModal(false);
@@ -391,12 +442,24 @@ export default function ProductsManager({ user }) {
               return (
                 <tr key={p._id}>
                   <td>
-                    <strong>{displayName}</strong>
-                    {activeTab === 'archived' && (
-                      <span className="badge warning badge-inline">
-                        Archived
-                      </span>
-                    )}
+                    <div className="product-name-cell">
+                      <img
+                        className="product-thumbnail"
+                        src={p.image || '/product-placeholder.svg'}
+                        alt={displayName}
+                        onError={(event) => {
+                          event.currentTarget.src = '/product-placeholder.svg';
+                        }}
+                      />
+                      <div>
+                        <strong>{displayName}</strong>
+                        {activeTab === 'archived' && (
+                          <span className="badge warning badge-inline">
+                            Archived
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td><code>{p.sku}</code></td>
                   <td>{p.category?.name || 'Uncategorized'}</td>
@@ -524,6 +587,43 @@ export default function ProductsManager({ user }) {
                     <option key={c._id} value={c._id}>{c.name}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="form-group">
+                <label>Product image (optional)</label>
+                <div className="product-image-upload">
+                  <img
+                    src={imagePreview || '/product-placeholder.svg'}
+                    alt="Product preview"
+                    className="image-upload-preview"
+                    onError={(event) => {
+                      event.currentTarget.src = '/product-placeholder.svg';
+                    }}
+                  />
+                  <div className="image-upload-actions">
+                    <label className="btn-secondary file-picker-btn">
+                      {imagePreview ? 'Change image' : 'Upload image'}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={handleImageSelection}
+                      />
+                    </label>
+                    {(imagePreview || editProduct?.image) && (
+                      <button
+                        type="button"
+                        className="btn-link-sm"
+                        onClick={() => {
+                          setSelectedImage(null);
+                          setRemoveImage(true);
+                          setImagePreview('');
+                        }}
+                      >
+                        Remove image
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="form-group">

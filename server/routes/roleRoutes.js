@@ -4,9 +4,13 @@ const mongoose = require('mongoose');
 const Role = require('../models/Role');
 const User = require('../models/User');
 const { protect, checkPermission } = require('../middleware/authMiddleware');
-const { PERMISSIONS , ROLE_TEMPLATES} = require('../utils/permissions');
+const { PERMISSIONS, PERMISSION_REGISTRY, ROLE_TEMPLATES } = require('../utils/permissions');
 
 const ALL_VALID_PERMISSIONS = Object.values(PERMISSIONS);
+
+router.get('/permissions', protect, (req, res) => {
+  res.json(PERMISSION_REGISTRY);
+});
 
 function validatePermissions(permissions) {
   if (!Array.isArray(permissions)) return false;
